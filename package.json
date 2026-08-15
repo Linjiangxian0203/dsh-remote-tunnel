@@ -32,7 +32,8 @@
     "scripts",
     "docs",
     "test",
-    "README.md"
+    "README.md",
+    "README.zh.md"
   ],
   "dsh": {
     "bundle": {
