@@ -105,7 +105,7 @@ config show / config path
 3. **TOCTOU fallback**: if dsh loses a bind race at startup (`EADDRINUSE` shows up in the unit journal), the port is added to the exclusion set and the next free port is retried (up to 5 rounds by default).
 4. **Local tunnel**: `ssh -N -L 127.0.0.1:<local>:127.0.0.1:<remote> <alias>`; the local port is checked first (shifts automatically when occupied, with `netstat`+`tasklist` naming the occupier). When the ssh process exits, it respawns with a backoff sequence (1s→2s→4s→8s→15s→30s cap), forever by default (`maxAttempts` configurable).
 5. **Heartbeat**: while the tunnel lives, the registry's `last_heartbeat` is refreshed in-place under the lock every `heartbeatSeconds` (default 120).
-6. **Release**: `down` (or Ctrl+C on `up`) runs in order: stop tunnel → remove local state → registry `released` → stop the remote unit → verify the port is really free. An `up` supervisor in another process notices the removed state file and stops reconnecting — no resurrection.
+6. **Release**: `down` (or Ctrl+C on `up`) runs in order: stop tunnel → remove local state → registry `released` → stop the remote unit → verify the port is really free. An `up` supervisor in another process notices the removed state file and stops reconnecting — no resurrection. Closing the terminal hard (without Ctrl+C) leaves the remote service running and the registry row `in-use` — which is accurate, not a leak: the next `up` cleans the stale local state and **reuses the same registered port** (no accumulation).
 
 ## Configuration
 

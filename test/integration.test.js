@@ -343,3 +343,25 @@ test("up twice rejects; down then up works again", async () => {
     await teardown([manager], env);
   }
 });
+
+test("up after a hard kill cleans stale state and reuses the registered remote port", async () => {
+  const env = setup();
+  const manager = makeManager(env.home);
+  try {
+    const first = await manager.up("mock");
+    // simulate a hard-closed terminal: the tunnel process dies, state file stays
+    await new Promise((resolve) => {
+      const killer = spawn("taskkill", ["/PID", String(manager.tunnels.get("mock").child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+      killer.on("close", () => resolve());
+    });
+    await sleep(500);
+    const second = await manager.up("mock");
+    assert.equal(second.remotePort, first.remotePort, "remote port must be reused (unit + registry row still healthy)");
+    assert.equal(second.reused, true);
+    const { status } = await httpGet(second.url);
+    assert.equal(status, 200);
+    await manager.down("mock");
+  } finally {
+    await teardown([manager], env);
+  }
+});

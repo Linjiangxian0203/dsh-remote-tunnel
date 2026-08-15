@@ -258,6 +258,14 @@ export class TunnelManager {
         { code: "E_ALREADY_UP" }
       );
     }
+    if (state !== undefined && !pidAlive(state.sshPid)) {
+      // The previous `up` process died without a clean teardown (terminal
+      // hard-closed, machine rebooted...). Its state file is stale: drop it so
+      // the old local port can be reused. The remote unit + registry row are
+      // reused by provision() below, so the remote port stays stable.
+      this.out(`cleaning up stale tunnel state for ${alias} (previous process is gone)`);
+      removeState(this.home, alias);
+    }
     // A dsh that crashes on bind AFTER systemd accepted the start surfaces as
     // E_REMOTE_BIND during the port wait — retry with that port excluded.
     let remote;

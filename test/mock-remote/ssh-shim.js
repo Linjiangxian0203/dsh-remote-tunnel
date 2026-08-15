@@ -180,11 +180,28 @@ function splitPipeline(str) {
 async function runStage(state, tokens, stdinText) {
   tokens = tokens.filter((t) => t !== "2>/dev/null" && t !== ">/dev/null" && t !== "2>&1");
   if (tokens.length === 0) return { code: 0, stdout: "", stderr: "" };
-  // `a || b` fallback
-  const orIndex = tokens.indexOf("||");
-  if (orIndex !== -1) {
-    const first = await runStage(state, tokens.slice(0, orIndex), stdinText);
-    return first.code === 0 ? first : runStage(state, tokens.slice(orIndex + 1), stdinText);
+  // `a && b || c` chains with proper short-circuiting (left to right)
+  const parts = [];
+  const ops = [];
+  let cur = [];
+  for (const token of tokens) {
+    if (token === "&&" || token === "||") {
+      parts.push(cur);
+      ops.push(token);
+      cur = [];
+    } else {
+      cur.push(token);
+    }
+  }
+  parts.push(cur);
+  if (ops.length > 0) {
+    let result = await runStage(state, parts[0], stdinText);
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i];
+      const runs = (op === "&&" && result.code === 0) || (op === "||" && result.code !== 0);
+      if (runs) result = await runStage(state, parts[i + 1], stdinText);
+    }
+    return result;
   }
   const [cmd, ...args] = tokens;
   const out = (stdout = "", code = 0, stderr = "") => ({ code, stdout, stderr });
@@ -398,16 +415,22 @@ async function runStage(state, tokens, stdinText) {
       const flag = args[0];
       const path = mockPath(args[1]);
       let ok = false;
+      // Model the real permission story: /etc/... is root-owned and not
+      // writable by a plain user unless the dshports-group setup is simulated.
+      const underEtc = args[1] !== undefined && args[1].startsWith("/etc/");
+      const etcWritable = underEtc && process.env.DSH_MOCK_SHARED_WRITABLE !== undefined;
       if (flag === "-f") ok = existsSync(path);
       else if (flag === "-r") ok = (() => { try { readFileSync(path); return true; } catch { return false; } })();
-      else if (flag === "-w") ok = (() => {
-        try {
-          mkdirSync(dirname(path), { recursive: true });
-          const fd = openSync(path, "a");
-          closeSync(fd);
-          return true;
-        } catch { return false; }
-      })();
+      else if (flag === "-w") ok = underEtc
+        ? etcWritable
+        : (() => {
+            try {
+              mkdirSync(dirname(path), { recursive: true });
+              const fd = openSync(path, "a");
+              closeSync(fd);
+              return true;
+            } catch { return false; }
+          })();
       else if (flag === "-s") ok = existsSync(path) && readFileSync(path, "utf8").length > 0;
       else if (flag === "-d") ok = existsSync(path);
       return ok ? out() : out("", 1);
