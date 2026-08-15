@@ -19,7 +19,7 @@ dsh plugin --profile remote add dsh-remote-tunnel
 # 2. 确认你的服务器能被识别(~/.ssh/config 里的 Host 别名自动发现)
 dsh --profile remote hosts
 #    没有?手动定义一台:
-dsh --profile remote hosts add lab --host 10.0.0.5 --user zc --workspace /home/zc/exp
+dsh --profile remote hosts add lab --host 192.0.2.10 --user alice --workspace /home/alice/project
 
 # 3. 第一次先体检,缺什么它逐项告诉你(密钥/Node/dsh/登记表/systemd)
 dsh --profile remote check lab
@@ -58,7 +58,7 @@ dsh plugin --profile web add .
 dsh --profile remote hosts
 
 # 也可以手动定义一台主机(不含 ~/.ssh/config 时)
-dsh --profile remote hosts add lab --host 10.0.0.5 --user zc --workspace /home/zc/exp
+dsh --profile remote hosts add lab --host 192.0.2.10 --user alice --workspace /home/alice/project
 
 # 就绪诊断:密钥/Node/dsh/登记表/systemd 逐项检查
 dsh --profile remote check lab
@@ -67,7 +67,7 @@ dsh --profile remote check lab
 dsh --profile remote up lab --open
 
 # 输出示例:
-#   allocated remote port 3081 (range 3080-3119, registered for zc)
+#   allocated remote port 3081 (range 3080-3119, registered for alice)
 #   ✓ tunnel up — http://127.0.0.1:3083 (remote lab:3081)
 #   stop: dsh --profile remote down lab   (or Ctrl+C)
 
@@ -112,10 +112,10 @@ config show / config path
 ```yaml
 hosts:
   lab:                      # 手动定义的主机(与 ~/.ssh/config 的别名合并,二者同名时这里优先)
-    host: 10.0.0.5
+    host: 192.0.2.10
     port: 22
-    user: zc
-    workspace: /home/zc/exp
+    user: alice
+    workspace: /home/alice/project
     remotePortRange: [3080, 3119]   # 可选,按主机覆盖
 defaults:
   remotePortRange: [3080, 3119]     # 远程 dsh 端口区间(先查占用再分配)
@@ -156,7 +156,7 @@ defaults:
 sudo install -m 0644 -o root -g root /dev/null /etc/dsh-ports.tsv
 
 # B. 成员无 sudo:共享组写入
-sudo groupadd dshports && sudo usermod -aG dshports zc alice ...
+sudo groupadd dshports && sudo usermod -aG dshports alice bob ...
 sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv
 # 每个成员的插件配置: registry.sudo: never
 ```

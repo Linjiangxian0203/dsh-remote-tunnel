@@ -18,8 +18,8 @@
 
 ```
 port	user	workspace	source	created_at	last_heartbeat	status
-3080	zc	/home/zc/exp	win-pc-01	2026-01-10T09:30:00Z	2026-01-10T10:15:00Z	in-use
-3081	alice	/home/alice	win-pc-02	2026-01-10T10:05:00Z	2026-01-10T10:05:00Z	released
+3080	alice	/home/alice/project	win-pc-01	2026-01-10T09:30:00Z	2026-01-10T10:15:00Z	in-use
+3081	bob	/home/bob	win-pc-02	2026-01-10T10:05:00Z	2026-01-10T10:05:00Z	released
 ```
 
 | 列 | 含义 |

@@ -11,9 +11,9 @@ test("parseSshConfig: aliases, wildcard merge, port", () => {
     "  IdentityFile ~/.ssh/id_ed25519",
     "",
     "Host lab",
-    "  HostName 10.0.0.5",
+    "  HostName 192.0.2.10",
     "  Port 6104",
-    "  User zc",
+    "  User alice",
     "",
     "Host bare",
     "  HostName bare.example.com",
@@ -26,9 +26,9 @@ test("parseSshConfig: aliases, wildcard merge, port", () => {
   assert.equal(parsed.aliases.length, 3);
   assert.equal(parsed.aliases[0].alias, "lab");
   const lab = findSshAlias(parsed, "lab");
-  assert.equal(lab.host, "10.0.0.5");
+  assert.equal(lab.host, "192.0.2.10");
   assert.equal(lab.port, 6104);
-  assert.equal(lab.user, "zc");
+  assert.equal(lab.user, "alice");
   assert.equal(lab.identityFile, "~/.ssh/id_ed25519");
   const bare = findSshAlias(parsed, "bare");
   assert.equal(bare.host, "bare.example.com");
@@ -42,14 +42,14 @@ test("parseTsv: skips header and comments, parses rows", () => {
   const text = [
     "# comment",
     "port\tuser\tworkspace\tsource\tcreated_at\tlast_heartbeat\tstatus",
-    "3080\tzc\t/home/zc/exp\tpc1\t2026-01-10T09:30:00Z\t2026-01-10T10:15:00Z\tin-use",
+    "3080\talice\t/home/alice/project\tpc1\t2026-01-10T09:30:00Z\t2026-01-10T10:15:00Z\tin-use",
     "3081\talice\t/home/alice\tpc2\t2026-01-10T10:05:00Z\t2026-01-10T10:05:00Z\treleased",
     "broken\trow"
   ].join("\n");
   const rows = parseTsv(text);
   assert.equal(rows.length, 2);
   assert.equal(rows[0].port, 3080);
-  assert.equal(rows[0].user, "zc");
+  assert.equal(rows[0].user, "alice");
   assert.equal(rows[0].status, "in-use");
   assert.equal(rows[1].status, "released");
 });

@@ -19,7 +19,7 @@ dsh plugin --profile remote add dsh-remote-tunnel
 # 2. Confirm your server is visible (Host aliases from ~/.ssh/config are auto-discovered)
 dsh --profile remote hosts
 #    not there? define one:
-dsh --profile remote hosts add lab --host 10.0.0.5 --user zc --workspace /home/zc/exp
+dsh --profile remote hosts add lab --host 192.0.2.10 --user alice --workspace /home/alice/project
 
 # 3. First run: a health check tells you step by step what's missing
 #    (keys / Node / dsh / registry / systemd)
@@ -59,7 +59,7 @@ dsh plugin --profile web add .
 dsh --profile remote hosts
 
 # Or define one manually (when there is no ~/.ssh/config entry)
-dsh --profile remote hosts add lab --host 10.0.0.5 --user zc --workspace /home/zc/exp
+dsh --profile remote hosts add lab --host 192.0.2.10 --user alice --workspace /home/alice/project
 
 # Readiness diagnostics: keys / Node / dsh / registry / systemd, item by item
 dsh --profile remote check lab
@@ -69,7 +69,7 @@ dsh --profile remote check lab
 dsh --profile remote up lab --open
 
 # Example output:
-#   allocated remote port 3081 (range 3080-3119, registered for zc)
+#   allocated remote port 3081 (range 3080-3119, registered for alice)
 #   ✓ tunnel up — http://127.0.0.1:3083 (remote lab:3081)
 #   stop: dsh --profile remote down lab   (or Ctrl+C)
 
@@ -114,10 +114,10 @@ config show / config path
 ```yaml
 hosts:
   lab:                      # manually defined hosts (merged with ~/.ssh/config aliases; wins on name collision)
-    host: 10.0.0.5
+    host: 192.0.2.10
     port: 22
-    user: zc
-    workspace: /home/zc/exp
+    user: alice
+    workspace: /home/alice/project
     remotePortRange: [3080, 3119]   # optional per-host override
 defaults:
   remotePortRange: [3080, 3119]     # remote dsh port range (occupancy-checked before allocation)
@@ -158,7 +158,7 @@ One-time admin setup for the shared registry (either):
 sudo install -m 0644 -o root -g root /dev/null /etc/dsh-ports.tsv
 
 # B. members have no sudo: shared group writes
-sudo groupadd dshports && sudo usermod -aG dshports zc alice ...
+sudo groupadd dshports && sudo usermod -aG dshports alice bob ...
 sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv
 # each member's plugin config: registry.sudo: never
 ```
