@@ -68,7 +68,7 @@ export class Tunnel {
     ];
     this.report("connecting", `attempt ${this.attempt}`);
     this.log(`connecting: ssh ${args.join(" ")} ${this.hostDef.alias}`);
-    const child = spawnSsh(this.hostDef, args, { cfg: this.cfg, onLine: ({ name, line }) => this.log(`[${name}] ${line}`) });
+    const child = spawnSsh(this.hostDef, args, { cfg: this.cfg, clearForwardings: false, onLine: ({ name, line }) => this.log(`[${name}] ${line}`) });
     this.child = child;
     child.on("error", (error) => {
       this.log(`spawn error: ${error.message}`);

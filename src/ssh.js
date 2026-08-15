@@ -8,7 +8,7 @@ import { findSshAlias } from "./ssh-config.js";
 // possible so the user's port/user/IdentityFile/ProxyJump apply verbatim.
 // DSH_REMOTE_TUNNEL_SSH overrides the ssh binary (used by the mock tests).
 
-export function commonSshArgs(cfg) {
+export function commonSshArgs(cfg, { clearForwardings = true } = {}) {
   const ssh = cfg.defaults.ssh;
   return [
     "-o", "BatchMode=yes",
@@ -17,11 +17,11 @@ export function commonSshArgs(cfg) {
     // the full timeout even when the connect itself is instant.
     ...(ssh.connectTimeout > 0 ? ["-o", `ConnectTimeout=${ssh.connectTimeout}`] : []),
     "-o", "StrictHostKeyChecking=accept-new",
-    // The plugin builds its own forwards. Clearing config-file forwards keeps
-    // exec sessions fast (no negotiation of unrelated Local/RemoteForward
-    // entries) and immune to config forwards that collide with our ports;
-    // command-line -L forwards (the tunnel) are unaffected.
-    "-o", "ClearAllForwardings=yes",
+    // ClearAllForwardings drops config-file forwards so exec sessions skip
+    // negotiating unrelated Local/RemoteForward entries. NOTE: it ALSO clears
+    // command-line -L/-R forwards (verified on Windows OpenSSH 8.1p1), so the
+    // long-lived tunnel disables it — the tunnel needs its own -L to survive.
+    ...(clearForwardings ? ["-o", "ClearAllForwardings=yes"] : []),
     ...ssh.extraArgs
   ];
 }
@@ -35,9 +35,9 @@ export function sshTargetArgs(hostDef) {
   return args;
 }
 
-export function spawnSsh(hostDef, args, { cfg, stdin, onLine } = {}) {
+export function spawnSsh(hostDef, args, { cfg, stdin, onLine, clearForwardings = true } = {}) {
   const sshCmd = (process.env.DSH_REMOTE_TUNNEL_SSH ?? "ssh").split(/\s+/).filter((t) => t.length > 0);
-  const child = spawn(sshCmd[0], [...sshCmd.slice(1), ...commonSshArgs(cfg), ...sshTargetArgs(hostDef), ...args], {
+  const child = spawn(sshCmd[0], [...sshCmd.slice(1), ...commonSshArgs(cfg, { clearForwardings }), ...sshTargetArgs(hostDef), ...args], {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true
   });
