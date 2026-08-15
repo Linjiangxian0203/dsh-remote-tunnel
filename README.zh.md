@@ -101,7 +101,7 @@ config show / config path
 1. **远程端口分配(原子)**:一条远程脚本在 `flock` 锁内完成——读登记表的 in-use 集合 + 对区间内每个端口做真实 bind 探测 → 取第一个「两者都空闲」的端口 → 追加 TSV 行 → 回显端口。多账号并发分配互不冲突。
 2. **远程守护**:写入 systemd 单元并 `enable --now`。有密码 sudo 时用**系统级**单元(`/etc/systemd/system/dsh-web-<user>.service`,与任务书模板一致);没有 sudo 时自动改用**用户级**单元(`~/.config/systemd/user/dsh-web.service`)+ `loginctl enable-linger`,完全不需要 root。服务器重启自动拉起,崩溃自动重启。
 3. **TOCTOU 兜底**:若 dsh 启动时端口被抢(`EADDRINUSE` 出现在单元日志),自动把该端口加入排除集,顺延下一个空闲端口重试(默认最多 5 轮)。
-4. **本地隧道**:`ssh -N -L 127.0.0.1:<本地>:127.0.0.1:<远程> <别名>`,本地端口先检查占用(被占自动顺延,并用 `netstat`+`tasklist` 报出占用者);ssh 进程退出后按退避序列(1s→2s→4s→8s→15s→30s 封顶)自动重连,永不断线(可配 `maxAttempts`)。
+4. **本地隧道**:`ssh -N -L 127.0.0.1:<本地>:127.0.0.1:<远程> <别名>`,本地端口先检查占用(被占自动顺延,并用 `netstat`+`tasklist` 报出占用者);ssh 进程退出后按退避序列(1s→2s→4s→8s→15s→30s 封顶)自动重连,永不断线(可配 `maxAttempts`)。隧道明确**不传** `ClearAllForwardings`(Windows OpenSSH 会把它连同命令行 `-L` 一起清掉);exec 会话仍会清掉 config 里的转发。
 5. **心跳**:隧道存活期间每 `heartbeatSeconds`(默认 120 秒)在锁内原位刷新登记表 `last_heartbeat`。
 6. **释放**:`down`(或 `up` 的 Ctrl+C)按序:停隧道 → 删除本地状态 → 登记表 `released` → 停远端单元 → 核实端口真的释放。另一个进程里的 `up` 监督器检测到状态文件被删除后自动停止重连,不会「诈尸」。**硬关终端**(不按 Ctrl+C)则远端服务照跑、登记表仍是 in-use——这是真实占用,不是泄漏:下次 `up` 会自动清理残留的本地状态并**复用同一个已登记端口**,不会越攒越多。
 
@@ -182,6 +182,7 @@ ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
 | `Permission denied (publickey)` / `sudo: a password is required` | 密钥没配好 / 没有 NOPASSWD sudo。前者 `ssh-copy-id`;后者见上表,无 sudo 也能用(用户级单元 + 兜底登记表)。 |
 | `Could not create directory '/home/xxx/.ssh'` + host key 提示 | 首次连接需接受主机指纹,插件默认 `accept-new`(TOFU),已在自动处理。 |
 | 断网后隧道没恢复 | 默认无限重连,`status` 看 ssh pid 是否 alive;`logs <host> --local` 看重连日志。若设了 `reconnect.maxAttempts`,达到上限会停止。 |
+| 隧道进程一直活着,但本地 URL 始终 `not reachable`(端口不通) | Windows OpenSSH 8.1 会把 `-o ClearAllForwardings=yes` 连同命令行自己的 `-L` 一起清掉,导致隧道只连接、不转发。已修复:隧道不再传该选项(exec 会话仍保留)。升级到含 `fix: don't clear the tunnel's own -L forward on Windows` 的版本。 |
 | 登记表读不到(`/etc/dsh-ports.tsv missing`) | 首次分配时自动创建(需写入权限);无权限时自动降级到 `~/.dsh-ports.tsv`,`check` 会给出管理员初始化命令。 |
 | 每条 ssh 命令都慢 ~N 秒 | 部分服务器上给 ssh 传 `ConnectTimeout` 会让每条连接都等满超时(即使秒连)。默认已不传该参数(`ssh.connectTimeout: 0`);需要时再显式打开。 |
 
