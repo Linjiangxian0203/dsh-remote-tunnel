@@ -1,0 +1,6 @@
+# Keep POSIX shell scripts with LF endings regardless of checkout platform
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.js text eol=lf

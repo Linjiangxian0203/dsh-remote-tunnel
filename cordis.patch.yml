@@ -1,0 +1,18 @@
+# dsh-remote-tunnel bundle patch: one row inserted over the composed profile.
+#
+# The row owns the command line ONLY on profiles where the web app does not
+# (detected at apply time: the launcher's argv names the `web` profile, or the
+# web app's `webStartup` service is already mounted). On the web profile it
+# stays in service mode and registers the `/remote` slash commands.
+#
+# Install on a dedicated CLI profile:
+#   dsh plugin --profile remote add dsh-remote-tunnel
+#   dsh --profile remote up <host>
+# or on the web profile for the `/remote ...` commands.
+
+- insert:
+    - id: remote-tunnel
+      name: 'dsh-remote-tunnel'
+      inject: [cmdlineArgs]
+      config:
+        home: !!js dshHomePath('remote-tunnel')
