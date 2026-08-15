@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
-import { spawn } from "node:child_process";
+import { killProcessTree } from "../src/local/ports.js";
 import { TunnelManager } from "../src/manager.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -57,10 +57,7 @@ async function teardown(managers, { home, mockRoot }) {
     const services = JSON.parse(readFileSync(join(mockRoot, "services.json"), "utf8"));
     for (const [, entry] of Object.entries(services)) {
       if (entry.pid !== null && entry.pid !== undefined) {
-        await new Promise((resolve) => {
-          const child = spawn("taskkill", ["/PID", String(entry.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-          child.on("close", () => resolve());
-        });
+        await killProcessTree(entry.pid);
       }
     }
   } catch { /* nothing to clean */ }
@@ -211,10 +208,7 @@ test("auto-reconnect: killing the tunnel child brings it back", async () => {
     const first = manager.tunnels.get("mock").child;
     assert.ok(first !== undefined);
     // kill the ssh shim process
-    await new Promise((resolve) => {
-      const killer = spawn("taskkill", ["/PID", String(first.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-      killer.on("close", () => resolve());
-    });
+    await killProcessTree(first.pid);
     await waitFor(async () => {
       const child = manager.tunnels.get("mock")?.child;
       return child !== undefined && child.pid !== first.pid && await (async () => {
@@ -236,10 +230,7 @@ test("audit: stale detection, clean-stale, orphan after keep-service down", asyn
     // kill the remote mock web directly -> in-use row with no listener = stale
     const services = JSON.parse(readFileSync(join(env.mockRoot, "services.json"), "utf8"));
     const entry = Object.values(services).find((e) => e.active === true);
-    await new Promise((resolve) => {
-      const killer = spawn("taskkill", ["/PID", String(entry.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-      killer.on("close", () => resolve());
-    });
+    await killProcessTree(entry.pid);
     const auditStale = await manager.audit("mock", {});
     const staleRow = auditStale.rows.find((r) => r.port === result.remotePort);
     assert.equal(staleRow.verdict, "stale");
@@ -350,10 +341,7 @@ test("up after a hard kill cleans stale state and reuses the registered remote p
   try {
     const first = await manager.up("mock");
     // simulate a hard-closed terminal: the tunnel process dies, state file stays
-    await new Promise((resolve) => {
-      const killer = spawn("taskkill", ["/PID", String(manager.tunnels.get("mock").child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-      killer.on("close", () => resolve());
-    });
+    await killProcessTree(manager.tunnels.get("mock").child.pid);
     await sleep(500);
     const second = await manager.up("mock");
     assert.equal(second.remotePort, first.remotePort, "remote port must be reused (unit + registry row still healthy)");
