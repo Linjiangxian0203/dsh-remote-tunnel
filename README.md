@@ -2,6 +2,8 @@
 
 [中文](README.zh.md) | English
 
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+
 **Remote Host Tunnel Manager**: automates the "local browser → dsh web on a remote Linux server" link — remote port allocation with a registry, systemd supervision, resilient SSH tunneling, local URL output, and full lifecycle management. Built for single users and for teams sharing one server.
 
 - Sessions and files live **on the server** (the remote dsh web's workspace = server directories); the local machine only keeps a tunnel

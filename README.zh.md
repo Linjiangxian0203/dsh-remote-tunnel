@@ -2,6 +2,8 @@
 
 中文 | [English](README.md)
 
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+
 **Remote Host Tunnel Manager**:把「本地浏览器 → 远程 Linux 服务器上的 dsh web」这条链路自动化——远程端口分配与登记、systemd 守护、SSH 隧道保活、本地 URL 输出、全生命周期管理,并面向多人共用同一台服务器的场景。
 
 - 会话与文件都在**服务器**上(远程 dsh web 的工作区 = 服务器目录),本地只开一条隧道
