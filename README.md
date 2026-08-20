@@ -17,6 +17,9 @@
 ```powershell
 # 1. Install (published npm package)
 dsh plugin --profile remote add dsh-remote-tunnel
+#    want it in the web UI too (Settings → Plugins) with /remote slash commands in chat?
+#    also install into the web profile, then restart dsh web:
+dsh plugin --profile web add dsh-remote-tunnel
 
 # 2. Confirm your server is visible (Host aliases from ~/.ssh/config are auto-discovered)
 dsh --profile remote hosts
@@ -37,6 +40,8 @@ dsh --profile remote down lab
 The remote server needs: Node ≥ 22.19, dsh, systemd, and key-based ssh login. One command initializes it:
 `ssh <host> 'sh -s' < scripts/bootstrap-remote.sh`. Everything else lives in `$DSH_HOME/remote-tunnel/config.yaml` — sensible defaults, no changes needed.
 
+> The `remote` CLI profile is the main interface. Installing into the **web** profile is what makes the plugin appear under **Settings → Plugins** and enables the `/remote` slash commands in chat — restart `dsh web` once after adding it there.
+
 ## Requirements
 
 - Local: Windows/macOS/Linux with the built-in OpenSSH client (Windows 10+ ships it), **Node ≥ 22.19**
@@ -50,7 +55,9 @@ The remote server needs: Node ≥ 22.19, dsh, systemd, and key-based ssh login. 
 cd <plugin checkout>       # or the npm package name: dsh-remote-tunnel
 dsh plugin --profile remote add .
 
-# 2. Optional: install into the web profile to get the /remote slash commands
+# 2. Install into the web profile so the plugin shows up in the web UI
+#    (Settings → Plugins) and /remote slash commands work in chat;
+#    restart dsh web afterwards
 dsh plugin --profile web add .
 ```
 

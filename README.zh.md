@@ -17,6 +17,9 @@
 ```powershell
 # 1. 安装(npm 发布版)
 dsh plugin --profile remote add dsh-remote-tunnel
+#    想在 web UI 里也看到它(「设置 → 插件」)并用 /remote 斜杠命令?
+#    再装进 web profile,并重启 dsh web:
+dsh plugin --profile web add dsh-remote-tunnel
 
 # 2. 确认你的服务器能被识别(~/.ssh/config 里的 Host 别名自动发现)
 dsh --profile remote hosts
@@ -36,6 +39,8 @@ dsh --profile remote down lab
 远程服务器需要:Node ≥ 22.19、dsh、systemd、免密钥 ssh 登录;一条命令初始化:
 `ssh <host> 'sh -s' < scripts/bootstrap-remote.sh`。其余参数在 `$DSH_HOME/remote-tunnel/config.yaml`,不改就能用。
 
+> `remote` CLI profile 是插件的主界面。装进 **web** profile 才会让插件出现在「设置 → 插件」里、并启用聊天中的 `/remote` 斜杠命令——装完记得重启一次 `dsh web`。
+
 ## 要求
 
 - 本地:Windows/macOS/Linux,自带 OpenSSH 客户端(Windows 10+ 已内置),**Node ≥ 22.19**
@@ -49,7 +54,8 @@ dsh --profile remote down lab
 cd <插件源码目录>          # 或 npm 包名 dsh-remote-tunnel
 dsh plugin --profile remote add .
 
-# 2. 可选:装到 web profile,获得 /remote 斜杠命令
+# 2. 装到 web profile,让插件在 web UI 的「设置 → 插件」里可见、
+#    并启用聊天里的 /remote 斜杠命令;装完重启 dsh web
 dsh plugin --profile web add .
 ```
 
