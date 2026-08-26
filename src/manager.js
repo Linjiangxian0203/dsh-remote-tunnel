@@ -226,7 +226,12 @@ export class TunnelManager {
     this.stopHeartbeat(alias);
     const seconds = this.cfg.defaults.heartbeatSeconds;
     if (!Number.isFinite(seconds) || seconds <= 0) return;
+    // Guard against overlapping beats: a slow ssh round-trip must not stack a
+    // second heartbeat on top of the in-flight one.
+    let inflight = false;
     const timer = setInterval(() => {
+      if (inflight) return;
+      inflight = true;
       const run = async () => {
         const targets = await this.resolveTargets(alias);
         await remoteUpdateRegistry(targets.hostDef, this.cfg, this.ctxFor(alias), targets.registry, {
@@ -237,7 +242,7 @@ export class TunnelManager {
       };
       run().catch((error) => {
         this.event({ kind: "heartbeat", alias, error: error instanceof Error ? error.message : String(error) });
-      });
+      }).finally(() => { inflight = false; });
     }, seconds * 1000);
     timer.unref?.();
     this.heartbeats.set(alias, timer);
@@ -576,10 +581,15 @@ export class TunnelManager {
     const state = readState(this.home, alias);
     if (state === undefined) throw new TunnelError(`no tunnel state for "${alias}"`, { code: "E_NOT_UP" });
     const url = state.url;
-    const child = process.platform === "win32"
-      ? spawn("cmd", ["/c", "start", "", url], { stdio: "ignore", windowsHide: true })
-      : spawn("xdg-open", [url], { stdio: "ignore" });
-    child.on("error", () => {});
+    // Platform-specific browser launcher: Windows uses `cmd start`, macOS uses
+    // `open`, everything else uses `xdg-open`.
+    const launcher = process.platform === "win32"
+      ? ["cmd", ["/c", "start", "", url]]
+      : process.platform === "darwin"
+        ? ["open", [url]]
+        : ["xdg-open", [url]];
+    const child = spawn(launcher[0], launcher[1], { stdio: "ignore", windowsHide: true });
+    child.on("error", (error) => this.err(`could not open browser: ${error.message}`));
     return url;
   }
 

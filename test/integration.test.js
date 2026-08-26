@@ -69,6 +69,24 @@ function mockPath(mockRoot, remotePath) {
   return remotePath.startsWith("/") ? join(mockRoot, ...remotePath.split("/").filter((s) => s.length > 0)) : remotePath;
 }
 
+// Fake group metadata mirror for the registry file (see ssh-shim.js).
+function fileGroupFile(mockRoot) {
+  return join(mockRoot, "filegroup.json");
+}
+
+function setFileGroup(mockRoot, remotePath, group) {
+  const file = fileGroupFile(mockRoot);
+  const map = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+  map[remotePath] = group;
+  writeFileSync(file, JSON.stringify(map, null, 2), "utf8");
+}
+
+function getFileGroup(mockRoot, remotePath) {
+  const file = fileGroupFile(mockRoot);
+  if (!existsSync(file)) return null;
+  return JSON.parse(readFileSync(file, "utf8"))[remotePath] ?? null;
+}
+
 function makeManager(home, events = []) {
   const manager = new TunnelManager({
     home,
@@ -350,6 +368,32 @@ test("up after a hard kill cleans stale state and reuses the registered remote p
     assert.equal(status, 200);
     await manager.down("mock");
   } finally {
+    await teardown([manager], env);
+  }
+});
+
+test("shared-direct: registry update keeps the shared group (no mv inode swap)", async () => {
+  const env = setup();
+  process.env.DSH_MOCK_NO_SUDO = "1";
+  process.env.DSH_MOCK_SHARED_WRITABLE = "1";
+  const manager = makeManager(env.home);
+  try {
+    // admin pre-created the shared registry owned by the dshports group
+    const reg = mockPath(env.mockRoot, "/etc/dsh-ports.tsv");
+    mkdirSync(dirname(reg), { recursive: true });
+    writeFileSync(reg, "port\tuser\tworkspace\tsource\tcreated_at\tlast_heartbeat\tstatus\n", "utf8");
+    setFileGroup(env.mockRoot, reg, "dshports");
+
+    const result = await manager.up("mock");
+    assert.equal(result.registryKind, "shared-direct");
+    assert.equal(getFileGroup(env.mockRoot, reg), "dshports", "allocation must keep the shared group");
+
+    // down updates the registry (status -> released) via remoteUpdateRegistry
+    await manager.down("mock");
+    assert.equal(getFileGroup(env.mockRoot, reg), "dshports", "update must keep the shared group (in-place rewrite, no mv)");
+  } finally {
+    delete process.env.DSH_MOCK_NO_SUDO;
+    delete process.env.DSH_MOCK_SHARED_WRITABLE;
     await teardown([manager], env);
   }
 });

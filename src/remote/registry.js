@@ -89,7 +89,11 @@ TMP="$REG.tmp.$$"
 awk -F '\\t' -v OFS='\\t' -v port="$PORT" -v user="$USER_" -v col="$COL" -v val="$VAL" '
   { if ($1 == port && $2 == user) { if (col == "7") $7 = val; else $6 = val; } print }
 ' "$REG" > "$TMP"
-mv "$TMP" "$REG"`;
+# In-place rewrite: cat > keeps the registry's inode, so owner/group and
+# permissions survive. A mv would replace the inode with a file owned by
+# the current user (and their primary group), breaking writes by other
+# dshports-group members in the shared-direct setup.
+cat "$TMP" > "$REG" && rm -f "$TMP"`;
 
 const OCCUPANCY_NODE_PROBE = `const net = require("net");
 const ports = process.argv.slice(1).map(Number);

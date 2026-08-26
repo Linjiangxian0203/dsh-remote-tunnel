@@ -62,6 +62,23 @@ function setLinger(user, value) {
   writeJson(fsPath("linger.json"), map);
 }
 
+// Fake owner/group metadata per file (filegroup.json). Only the group of the
+// registry file matters: the shared-direct permission story (dshports group)
+// depends on the file keeping its group across registry updates.
+function fileGroups() {
+  return readJson(fsPath("filegroup.json"), {});
+}
+
+function getFileGroup(path) {
+  return fileGroups()[path] ?? null;
+}
+
+function setFileGroup(path, group) {
+  const map = fileGroups();
+  map[path] = group;
+  writeJson(fsPath("filegroup.json"), map);
+}
+
 function journalPath(unit, user) {
   return fsPath("journal", `${user}--${unit}.log`);
 }
@@ -295,7 +312,7 @@ async function runStage(state, tokens, stdinText) {
         const params = args[sIndex + 1] === "--" ? args.slice(args.indexOf("--") + 1) : args.slice(sIndex + 1);
         const script = stdinText ?? "";
         if (script.includes("NODE_PROG=")) return runAllocate(state, params, script);
-        if (script.includes("$REG.tmp")) return runUpdate(state, params);
+        if (script.includes("$REG.tmp")) return runUpdate(state, params, script);
         return out("", 1, "unrecognized remote script");
       }
       return out("", 1, "unsupported sh invocation");
@@ -491,7 +508,7 @@ async function runAllocate(state, params, script) {
   return { code: 0, stdout: chosen, stderr: "" };
 }
 
-function runUpdate(state, params) {
+function runUpdate(state, params, script) {
   const [regRaw, port, user, col, val] = params;
   const reg = mockPath(regRaw);
   const lines = readFileSync(reg, "utf8").split(/\r?\n/).filter((l) => l.length > 0);
@@ -503,7 +520,20 @@ function runUpdate(state, params) {
     }
     return fields.join("\t");
   });
-  writeFileSync(reg, updated.join("\n") + "\n", "utf8");
+  const tmp = `${reg}.tmp`;
+  writeFileSync(tmp, updated.join("\n") + "\n", "utf8");
+  // Mirror the real UPDATE_SHELL's inode semantics: `mv tmp reg` replaces the
+  // inode (owner/group become the current user's primary group), while
+  // `cat tmp > reg` rewrites in place and keeps the original owner/group. The
+  // shared-direct registry (dshports group) depends on the latter surviving.
+  const group = getFileGroup(reg);
+  if (script.includes('mv "$TMP" "$REG"')) {
+    setFileGroup(reg, state.user);
+  } else if (group !== null) {
+    setFileGroup(reg, group); // unchanged — explicit keep
+  }
+  writeFileSync(reg, readFileSync(tmp, "utf8"), "utf8");
+  try { unlinkSync(tmp); } catch { /* best effort */ }
   return { code: 0, stdout: "", stderr: "" };
 }
 

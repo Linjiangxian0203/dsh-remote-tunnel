@@ -43,8 +43,15 @@ export function registerSlashCommands(ctx, home) {
             return { kind: "success", text: steps.map((s) => `${s.ok ? "✓" : "✗"} ${s.name}: ${s.detail}`).join("\n") };
           }
           case "up": {
-            requireArg(tokens, 1, "up <host> [--open]");
-            const result = await manager.up(tokens[1], {});
+            // Split flags from the host name: `up <host> [--open]`. A bare
+            // `--open` must not be mistaken for the host.
+            const rest = tokens.slice(1).filter((t) => !t.startsWith("--"));
+            const wantOpen = tokens.slice(1).includes("--open");
+            if (rest.length === 0) throw new TunnelError("missing argument — up <host> [--open]", { code: "E_USAGE" });
+            const result = await manager.up(rest[0], {});
+            if (wantOpen) {
+              try { manager.open(rest[0]); } catch { /* the URL is already in the reply */ }
+            }
             return { kind: "success", text: [`tunnel up for ${result.alias}`, `local: ${result.url}`, `remote: 127.0.0.1:${result.remotePort} (unit ${result.unit})`, `workspace: ${result.workspace}`, `stop: /remote down ${result.alias} or CLI 'down'`].join("\n") };
           }
           case "down": {
