@@ -162,12 +162,19 @@ defaults:
 ```bash
 # A. 成员都有 passwordless sudo
 sudo install -m 0644 -o root -g root /dev/null /etc/dsh-ports.tsv
+sudo install -m 0644 -o root -g root /dev/null /etc/dsh-ports.tsv.lock
 
 # B. 成员无 sudo:共享组写入
 sudo groupadd dshports && sudo usermod -aG dshports alice bob ...
 sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv
+sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv.lock
 # 每个成员的插件配置: registry.sudo: never
 ```
+
+两个文件都要提前建好:它们位于仅 root 可写的目录里,成员自己无法创建锁文件,
+而所有登记操作都要先拿这把锁。方案 B 下只有这两个文件带组写权限(`0664`),
+所在目录保持仅 root 即可——每次登记表更新都经由用户级 `mktemp` 中转、原地
+改写,既不触碰目录,也不改变文件的属主/组。
 
 两个用户各自 `up` → 自动分到不同远程端口;`audit` 能看出谁占哪个端口、有无 stale/冲突。
 

@@ -75,10 +75,12 @@ else
   say ""
   say "NOTE: shared registry $REGISTRY does not exist."
   say "Without it each account falls back to ~/.dsh-ports.tsv (cross-user audit unavailable)."
-  say "An admin can create it once with:"
+  say "An admin creates BOTH files once (members must not create the lock in a"
+  say "root-only directory) — see README.md 'Sharing one server (multi-user)':"
+  say "    # A: members have passwordless sudo"
   say "    sudo install -m 0644 -o root -g root /dev/null $REGISTRY"
-  say "    sudo touch ${REGISTRY}.lock && sudo chmod 0644 ${REGISTRY}.lock"
-  say "(or chgrp dshports + chmod 0664 for sudo-less writes by group members)"
+  say "    sudo install -m 0644 -o root -g root /dev/null ${REGISTRY}.lock"
+  say "    # B: no sudo, shared group (chgrp dshports, chmod 0664) on BOTH files"
 fi
 
 say ""

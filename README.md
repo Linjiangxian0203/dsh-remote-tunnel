@@ -165,12 +165,21 @@ One-time admin setup for the shared registry (either):
 ```bash
 # A. every member has passwordless sudo
 sudo install -m 0644 -o root -g root /dev/null /etc/dsh-ports.tsv
+sudo install -m 0644 -o root -g root /dev/null /etc/dsh-ports.tsv.lock
 
 # B. members have no sudo: shared group writes
 sudo groupadd dshports && sudo usermod -aG dshports alice bob ...
 sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv
+sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv.lock
 # each member's plugin config: registry.sudo: never
 ```
+
+Both files are required up front: they sit in a root-only directory, so a
+member cannot create the lock themselves and every operation takes it.
+In setup B only those two files carry the group-write bit (`0664`) — the
+directory stays root-only, which is fine: each registry update stages through
+a per-user `mktemp` file and rewrites the registry in place, never touching
+the directory nor changing the file's owner/group.
 
 Each user runs `up` independently and gets a different remote port; `audit` shows who holds which port and flags stale/conflicting rows.
 
