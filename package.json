@@ -1,7 +1,7 @@
 {
   "name": "dsh-remote-tunnel",
   "description": "Remote Host Tunnel Manager for dsh: allocate and register remote ports, run dsh web on a remote Linux server via systemd, and keep a resilient SSH tunnel from this machine to it.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "license": "MIT",
   "type": "module",
   "main": "src/index.js",
