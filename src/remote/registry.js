@@ -85,18 +85,21 @@ printf '%s' "$chosen"`;
 // $1=REG $2=PORT $3=USER $4=COL(6|7) $5=VAL
 const UPDATE_SHELL = `set -eu
 REG=$1; PORT=$2; USER_=$3; COL=$4; VAL=$5
-TMP="$REG.tmp.$$"
+# Temp file via mktemp: a member updating the shared registry may lack write
+# permission on its DIRECTORY (e.g. /etc in the dshports-group setup), so a
+# sidecar "$REG.tmp.$$" could not even be created there. mktemp lands in the
+# per-user temp dir instead; the final cat > rewrites the registry IN PLACE,
+# keeping its inode, owner, group and permissions untouched (a mv would swap
+# the inode for one owned by the invoking user and lock out fellow members).
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
 awk -F '\\t' -v OFS='\\t' -v port="$PORT" -v user="$USER_" -v col="$COL" -v val="$VAL" '
   { if ($1 == port && $2 == user) { if (col == "7") $7 = val; else $6 = val; } print }
 ' "$REG" > "$TMP"
-# In-place rewrite: cat > keeps the registry's inode, so owner/group and
-# permissions survive. A mv would replace the inode with a file owned by
-# the current user (and their primary group), breaking writes by other
-# dshports-group members in the shared-direct setup.
-cat "$TMP" > "$REG" && rm -f "$TMP"`;
+cat "$TMP" > "$REG"`;
 
 const OCCUPANCY_NODE_PROBE = `const net = require("net");
-const ports = process.argv.slice(1).map(Number);
+const ports = process.argv.slice(1).map(Number).filter(Number.isFinite);
 const out = [];
 let pending = ports.length;
 if (pending === 0) process.exit(0);
@@ -197,7 +200,11 @@ export async function remoteUpdateRegistry(hostDef, cfg, ctx, registry, { port, 
 /** Which of the given ports actually accept connections on the remote host. */
 export async function remoteOccupancy(hostDef, cfg, ctx, ports) {
   if (ports.length === 0) return [];
-  const result = await execRemote(hostDef, `node -e '${OCCUPANCY_NODE_PROBE.replace(/'/g, `'\\''`)}' ${ports.join(" ")}`, { cfg, timeoutMs: 60000 });
+  // The probe travels on stdin (execRemote ends it after writing): no shell
+  // quoting of script text on the command line at all. `node -` exposes the
+  // dash itself inside argv, which the probe filters out; the numeric port
+  // args are injection-inert.
+  const result = await execRemote(hostDef, `node - ${ports.join(" ")}`, { cfg, stdin: OCCUPANCY_NODE_PROBE, timeoutMs: 60000 });
   if (result.code !== 0) {
     throw new TunnelError(`remote occupancy probe failed: ${result.stderr.trim() || `exit ${result.code}`}`, { code: "E_PROBE" });
   }

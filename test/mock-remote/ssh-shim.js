@@ -272,6 +272,24 @@ async function runStage(state, tokens, stdinText) {
           child.on("error", (e) => resolve(out("", 1, e.message)));
         });
       }
+      if (args[0] === "-") {
+        // Program-on-stdin mode (the plugin's occupancy probe): forward our
+        // stdin text to a real `node -` child.
+        const rest = args.slice(1);
+        return new Promise((resolve) => {
+          const child = spawn(process.execPath, ["-", ...rest], { windowsHide: true });
+          let stdout = "";
+          let stderr = "";
+          child.stdout.setEncoding("utf8");
+          child.stderr.setEncoding("utf8");
+          child.stdout.on("data", (c) => { stdout += c; });
+          child.stderr.on("data", (c) => { stderr += c; });
+          child.on("close", (code) => resolve(out(stdout, code ?? 1, stderr)));
+          child.on("error", (e) => resolve(out("", 1, e.message)));
+          child.stdin.write(stdinText ?? "");
+          child.stdin.end();
+        });
+      }
       return out("", 1, `unsupported node invocation: ${args.join(" ")}`);
     }
     case "dsh":
@@ -312,7 +330,7 @@ async function runStage(state, tokens, stdinText) {
         const params = args[sIndex + 1] === "--" ? args.slice(args.indexOf("--") + 1) : args.slice(sIndex + 1);
         const script = stdinText ?? "";
         if (script.includes("NODE_PROG=")) return runAllocate(state, params, script);
-        if (script.includes("$REG.tmp")) return runUpdate(state, params, script);
+        if (script.includes("TMP=$(mktemp)")) return runUpdate(state, params, script);
         return out("", 1, "unrecognized remote script");
       }
       return out("", 1, "unsupported sh invocation");
