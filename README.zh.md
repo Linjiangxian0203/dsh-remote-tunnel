@@ -204,8 +204,8 @@ ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
 ## 开发与测试
 
 ```bash
-pnpm install            # 插件自身依赖
-node --test test/       # 单元测试 + 假 ssh shim 集成测试(无需真实服务器)
+npm install             # 插件自身依赖(package-lock.json 已入库,构建可复现)
+npm test                # 单元测试 + 假 ssh shim 集成测试(无需真实服务器)
 ```
 
 集成测试用一个仿真的 `ssh`(把远程命令解释到临时「服务器」上,隧道真实转发 TCP),覆盖:分配/登记/释放、并发多人分配、TOCTOU 顺延、本地端口冲突顺延、断线自动重连、跨进程 down 取消、audit stale/orphan/clean。

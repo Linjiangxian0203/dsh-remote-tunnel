@@ -13,11 +13,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22.19'   # matches package.json engines (>=22.19)
           registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci   # reproducible install from the committed package-lock.json
 
       - name: Test
         run: node --test test/unit.test.js test/integration.test.js
