@@ -3,6 +3,39 @@ import assert from "node:assert/strict";
 import { parseSshConfig, findSshAlias } from "../src/ssh-config.js";
 import { parseTsv, sanitizeField, REGISTRY_COLUMNS } from "../src/remote/registry.js";
 import { normalizeConfig, DEFAULT_CONFIG } from "../src/config.js";
+import { parsePort, parseIntArg } from "../src/cli-args.js";
+import { renderUnitBody } from "../src/remote/unit.js";
+
+test("parsePort: passes through valid ports and absent options", () => {
+  assert.equal(parsePort("22", "--port"), 22);
+  assert.equal(parsePort("65535", "--port"), 65535);
+  assert.equal(parsePort(undefined, "--port"), undefined);
+});
+
+test("parsePort: rejects non-integers and out-of-range values", () => {
+  for (const bad of ["abc", "22.5", "0", "-1", "65536", ""]) {
+    assert.throws(() => parsePort(bad, "--port"), (e) => e.code === "E_USAGE" && e.message.includes("--port"), bad);
+  }
+});
+
+test("parseIntArg: range bounds and option absence", () => {
+  assert.equal(parseIntArg(undefined, "--lines", { min: 1, max: 100 }), undefined);
+  assert.equal(parseIntArg("0", "--heartbeat", { min: 0, max: 86400 }), 0);
+  assert.throws(() => parseIntArg("0", "--lines", { min: 1, max: 100 }), (e) => e.code === "E_USAGE" && e.message.includes("expected 1-100"));
+});
+
+test("renderUnitBody: quotes paths (spaces survive), rejects quotes/newlines", () => {
+  const cfg = { defaults: { unit: { restartSec: 5 } } };
+  const fields = { user: "alice", home: "/home/alice", workspace: "/home/alice/my project", dshPath: "/usr/local/bin/dsh", port: 3080, name: "dsh-web-alice" };
+  const body = renderUnitBody(cfg, "system", fields);
+  assert.ok(body.includes("WorkingDirectory=/home/alice/my project\n"), body); // raw value, no quotes
+  assert.ok(body.includes('Environment="HOME=/home/alice"'), body);
+  assert.ok(body.includes('ExecStart="/usr/local/bin/dsh" --profile web --port 3080'), body);
+  assert.throws(
+    () => renderUnitBody(cfg, "system", { ...fields, workspace: '/home/alice/we"ird' }),
+    (e) => e.code === "E_UNIT_PATH" && e.message.includes("workspace")
+  );
+});
 
 test("parseSshConfig: aliases, wildcard merge, port", () => {
   const text = [
