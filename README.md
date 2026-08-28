@@ -209,7 +209,7 @@ ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
 ## Development and testing
 
 ```bash
-pnpm install            # plugin dependencies
+npm install             # plugin dependencies (package-lock.json is committed)
 npm test                # unit tests + mock-ssh integration tests (no real server needed)
 ```
 
