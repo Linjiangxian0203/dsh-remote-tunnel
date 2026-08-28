@@ -1,0 +1,83 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
+versions are published to npm and tagged `v*` on GitHub.
+
+## [Unreleased]
+
+## [0.1.4] — 2026-08-27
+
+### Changed
+- Dependency management unified on **npm**: `package-lock.json` is committed
+  and both CI and the publish workflow install reproducibly with `npm ci`
+  (the publish runner is also pinned to Node 22.19, matching `engines`).
+
+### Fixed
+- Numeric CLI options (`--port`, `--local-port`, `--heartbeat`, `--lines`,
+  `--release`) are validated now — `--port abc` or `--port 22.5` exits with a
+  clear usage error instead of silently falling back to a default.
+- systemd unit rendering hardened, verified against `systemd-analyze`:
+  `Environment=` values and the `ExecStart` binary are quoted (spaces survive
+  where the parser would otherwise split them), paths containing quotes or
+  newlines are rejected up front with an actionable error, and
+  `WorkingDirectory` keeps its native raw-value semantics (spaces fine,
+  quotes never added — the parser takes the line remainder verbatim).
+
+### Added
+- `CHANGELOG.md` (this file).
+
+## [0.1.3] — 2026-08-27
+
+### Fixed
+- Registry updates no longer require write access to the registry's
+  **directory**: updates stage through `mktemp` and rewrite the file in place
+  (`cat >` keeps inode, owner and group). In the shared-direct setup the
+  registry can stay at `/etc/dsh-ports.tsv` with a root-only directory —
+  verified on real Linux with two users sharing a `dshports`-owned file.
+- The remote occupancy probe is now fed to `node` over stdin instead of being
+  shell-quoted onto the command line.
+
+### Added
+- The multi-user docs now spell out that the admin must pre-create **both**
+  the registry and its lock file, and that only those two files carry the
+  group-write bit.
+
+## [0.1.2] — 2026-08-27
+
+### Fixed
+- Registry updates rewritten in place so a member's heartbeat/down no longer
+  replaces the file's inode (which leaked the writer's primary group and
+  locked other `dshports` members out). Covered by a shared-direct regression
+  test in the mock ssh suite.
+- `open` / `up --open` now use the platform browser launcher (`open` on macOS,
+  `cmd start` on Windows, `xdg-open` elsewhere) and report spawn failures
+  instead of hiding them.
+- `/remote up <host> --open` honors the flag instead of treating it as the
+  host name.
+
+### Added
+- Heartbeats skip a beat while the previous ssh round-trip is still in
+  flight, instead of stacking up.
+- CI workflow runs the test suite on every push/PR (Node 22.19, matching
+  `engines`).
+
+## [0.1.1] — 2026-08-15
+
+### Fixed
+- The long-lived tunnel no longer passes `ClearAllForwardings` (it also
+  cleared the tunnel's own `-L` forward on Windows OpenSSH).
+- Cross-platform process-tree kill (replaces the Windows-only `taskkill`
+  call) so integration tests run everywhere.
+
+### Added
+- `up` cleans stale local tunnel state after a hard kill and reuses the
+  still-registered remote port.
+- English README; Chinese README stays as the original.
+
+## [0.1.0] — initial release
+
+Remote port allocation with a server-side registry, systemd supervision
+(system or `--user` unit), resilient auto-reconnecting SSH tunnel, local URL
+output, `check`/`audit` diagnostics, and the `/remote` slash commands for the
+dsh web profile.
