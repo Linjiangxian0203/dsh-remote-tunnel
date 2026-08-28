@@ -14,6 +14,23 @@ export function unitNameFor(cfg, user, scope) {
   return scope === "system" ? `${cfg.defaults.unit.prefix}${sanitized}` : cfg.defaults.unit.prefix.replace(/-$/, "");
 }
 
+/**
+ * Paths we interpolate into unit values. Verified against systemd-analyze
+ * (255): WorkingDirectory takes the raw remainder of the line (spaces fine,
+ * quotes would become literal and break it), while Environment= assignments
+ * and the ExecStart executable token honor double quotes — so only those two
+ * get quoted. Quotes/newlines are not representable in any of these slots;
+ * reject them with a clear hint instead of writing a corrupt unit.
+ */
+function assertRenderablePath(field, value) {
+  if (/["\r\n\t]/.test(value)) {
+    throw new TunnelError(
+      `${field} "${value}" contains characters a systemd unit cannot carry (quotes/newlines) — use a path without them`,
+      { code: "E_UNIT_PATH" }
+    );
+  }
+}
+
 function renderSystemUnit(cfg, { user, home, workspace, dshPath, port, name }) {
   return `[Unit]
 Description=dsh web (${user} on 127.0.0.1:${port})
@@ -23,9 +40,9 @@ After=network.target
 Type=simple
 User=${user}
 WorkingDirectory=${workspace}
-Environment=HOME=${home}
-Environment=DSH_HOME=${home}/.dsh
-ExecStart=${dshPath} --profile web --port ${port}
+Environment="HOME=${home}"
+Environment="DSH_HOME=${home}/.dsh"
+ExecStart="${dshPath}" --profile web --port ${port}
 Restart=on-failure
 RestartSec=${cfg.defaults.unit.restartSec}
 
@@ -41,8 +58,8 @@ Description=dsh web (${user} on 127.0.0.1:${port})
 [Service]
 Type=simple
 WorkingDirectory=${workspace}
-Environment=DSH_HOME=${home}/.dsh
-ExecStart=${dshPath} --profile web --port ${port}
+Environment="DSH_HOME=${home}/.dsh"
+ExecStart="${dshPath}" --profile web --port ${port}
 Restart=on-failure
 RestartSec=${cfg.defaults.unit.restartSec}
 
@@ -52,6 +69,9 @@ WantedBy=default.target
 }
 
 export function renderUnitBody(cfg, scope, { user, home, workspace, dshPath, port, name }) {
+  assertRenderablePath("home", home);
+  assertRenderablePath("workspace", workspace);
+  assertRenderablePath("dshPath", dshPath);
   return scope === "system"
     ? renderSystemUnit(cfg, { user, home, workspace, dshPath, port, name })
     : renderUserUnit(cfg, { user, home, workspace, dshPath, port, name });

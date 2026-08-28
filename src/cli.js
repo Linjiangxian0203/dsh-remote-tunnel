@@ -3,6 +3,7 @@ import { parseCmdline } from "@deepseek-ai/dsh-cmdline";
 import { TunnelManager } from "./manager.js";
 import { TunnelError } from "./errors.js";
 import { loadConfig, saveConfig } from "./config.js";
+import { parsePort, parseIntArg } from "./cli-args.js";
 
 // dsh-remote-tunnel CLI half: the commander program for a dedicated profile.
 // runCli is called by the bundle entry once it has decided this profile owns
@@ -117,7 +118,7 @@ Commands:
         const { path, config } = loadConfig(home);
         config.hosts[alias] = {
           host: options.host,
-          port: Number.parseInt(options.port, 10) || 22,
+          port: parsePort(options.port, "--port"),
           ...(options.user !== undefined ? { user: options.user } : {}),
           ...(options.workspace !== undefined ? { workspace: options.workspace } : {})
         };
@@ -156,7 +157,7 @@ Commands:
     .option("--port <port>", "use this remote port instead of allocating one");
   provisionCmd.action((alias, options) => {
     Promise.resolve().then(async () => {
-      const result = await manager.provision(alias, { port: options.port !== undefined ? Number.parseInt(options.port, 10) : undefined });
+      const result = await manager.provision(alias, { port: parsePort(options.port, "--port") });
       reporter.out(`✓ remote dsh web ready on ${alias}`);
       reporter.out(`  port:     ${result.remoteUrl}`);
       reporter.out(`  unit:     ${result.unit}`);
@@ -176,11 +177,11 @@ Commands:
   upCmd.action((alias, options) => {
     Promise.resolve().then(async () => {
       if (options.heartbeat !== undefined) {
-        manager.cfg.defaults.heartbeatSeconds = Number.parseInt(options.heartbeat, 10) || 0;
+        manager.cfg.defaults.heartbeatSeconds = parseIntArg(options.heartbeat, "--heartbeat", { min: 0, max: 86400 });
       }
       const result = await manager.up(alias, {
-        remotePort: options.port !== undefined ? Number.parseInt(options.port, 10) : undefined,
-        localPort: options.localPort !== undefined ? Number.parseInt(options.localPort, 10) : undefined
+        remotePort: parsePort(options.port, "--port"),
+        localPort: parsePort(options.localPort, "--local-port")
       });
       reporter.out("");
       reporter.out(`  local:    ${result.url}`);
@@ -278,7 +279,7 @@ Commands:
   logsCmd.action((alias, options) => {
     Promise.resolve().then(async () => {
       const { text } = await manager.logs(alias, {
-        lines: Number.parseInt(options.lines, 10) || 100,
+        lines: parseIntArg(options.lines, "--lines", { min: 1, max: 100000 }),
         follow: options.follow === true,
         local: options.local === true
       });
@@ -298,7 +299,7 @@ Commands:
   auditCmd.action((alias, options) => {
     Promise.resolve().then(async () => {
       const { rows, changes } = await manager.audit(alias, {
-        release: options.release !== undefined ? Number.parseInt(options.release, 10) : undefined,
+        release: parsePort(options.release, "--release"),
         cleanStale: options.cleanStale === true
       });
       if (options.json === true) {
