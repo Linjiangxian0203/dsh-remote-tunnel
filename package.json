@@ -31,7 +31,6 @@
     "cordis.patch.yml",
     "scripts",
     "docs",
-    "test",
     "README.md",
     "README.zh.md",
     "CHANGELOG.md"
@@ -46,10 +45,10 @@
     "js-yaml": "^4.2.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-cmdline": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-cmdline": "^0.1.2-alpha.3"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-cmdline": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-cmdline": "^0.1.2-alpha.3"
   },
   "scripts": {
     "test": "node --test test/unit.test.js test/integration.test.js"
