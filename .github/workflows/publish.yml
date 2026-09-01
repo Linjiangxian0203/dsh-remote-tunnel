@@ -26,3 +26,15 @@ jobs:
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Attach bilingual release notes (.github/releases/<tag>.md)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES=".github/releases/${GITHUB_REF_NAME}.md"
+          if [ ! -f "$NOTES" ]; then
+            echo "::warning::missing $NOTES — write bilingual notes before tagging"
+            exit 0
+          fi
+          gh release edit "$GITHUB_REF_NAME" --notes-file "$NOTES" \
+            || gh release create "$GITHUB_REF_NAME" --verify-tag --title "dsh $GITHUB_REF_NAME" --notes-file "$NOTES"
