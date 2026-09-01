@@ -197,7 +197,7 @@ ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
 | `Permission denied (publickey)` / `sudo: a password is required` | 密钥没配好 / 没有 NOPASSWD sudo。前者 `ssh-copy-id`;后者见上表,无 sudo 也能用(用户级单元 + 兜底登记表)。 |
 | `Could not create directory '/home/xxx/.ssh'` + host key 提示 | 首次连接需接受主机指纹,插件默认 `accept-new`(TOFU),已在自动处理。 |
 | 断网后隧道没恢复 | 默认无限重连,`status` 看 ssh pid 是否 alive;`logs <host> --local` 看重连日志。若设了 `reconnect.maxAttempts`,达到上限会停止。 |
-| 隧道进程一直活着,但本地 URL 始终 `not reachable`(端口不通) | Windows OpenSSH 8.1 会把 `-o ClearAllForwardings=yes` 连同命令行自己的 `-L` 一起清掉,导致隧道只连接、不转发。已修复:隧道不再传该选项(exec 会话仍保留)。升级到含 `fix: don't clear the tunnel's own -L forward on Windows` 的版本。 |
+| 隧道进程一直活着,但本地 URL 始终 `not reachable`(端口不通) | Windows OpenSSH 8.1 会把 `-o ClearAllForwardings=yes` 连同命令行自己的 `-L` 一起清掉,导致隧道只连接、不转发。**已于 0.1.1 修复**:隧道不再传该选项(exec 会话仍保留)。 |
 | 登记表读不到(`/etc/dsh-ports.tsv missing`) | 首次分配时自动创建(需写入权限);无权限时自动降级到 `~/.dsh-ports.tsv`,`check` 会给出管理员初始化命令。 |
 | 每条 ssh 命令都慢 ~N 秒 | 部分服务器上给 ssh 传 `ConnectTimeout` 会让每条连接都等满超时(即使秒连)。默认已不传该参数(`ssh.connectTimeout: 0`);需要时再显式打开。 |
 
@@ -214,7 +214,7 @@ npm test                # 单元测试 + 假 ssh shim 集成测试(无需真实�
 
 - 隧道与远程 dsh 一律只绑 `127.0.0.1`(dsh 本身禁止 `--host 0.0.0.0`)
 - 插件不保存、不传输任何密码/密钥/API key;SSH 全走现有密钥(BatchMode,拒绝密码提示挂起)
-- 登记表不记录任何敏感信息(见 `docs/registry-format.md`)
+- 登记表不记录任何敏感信息(见 `docs/registry-format.md` · [English](docs/registry-format.en.md))
 - 远程脚本仅在 `flock` 锁内追加/改写登记表与 systemd 单元,不执行其他写入
 
 ## 非目标

@@ -6,6 +6,26 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+## [0.1.5] — 2026-08-27
+
+### Changed
+- `audit --clean-stale` rewrites every stale row in **one** flock+awk pass —
+  N stale rows now cost one ssh round-trip instead of N (same mktemp + in-place
+  write semantics as the single-row update; verified against both gawk and mawk).
+- Local port-exhaustion diagnostics use **one** netstat + **one** tasklist
+  (or one lsof) for the whole port range, instead of a process spawn per port.
+- `peerDependencies`/`devDependencies` aligned to `@deepseek-ai/dsh-cmdline
+  ^0.1.2-alpha.3` — removes the UNMET PEER warning (and possible duplicate
+  dsh-cmdline install) against current harness alpha releases.
+- `test/` is no longer shipped in the npm package.
+
+### Added
+- English registry-format doc (`docs/registry-format.en.md`); READMEs link both.
+
+### Fixed
+- README troubleshooting row for the old Windows `ClearAllForwardings` issue
+  no longer tells up-to-date users to upgrade (fixed since 0.1.1).
+
 ## [0.1.4] — 2026-08-27
 
 ### Changed
