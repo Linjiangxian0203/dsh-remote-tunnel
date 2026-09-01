@@ -5,6 +5,7 @@ import { parseTsv, sanitizeField, REGISTRY_COLUMNS } from "../src/remote/registr
 import { normalizeConfig, DEFAULT_CONFIG } from "../src/config.js";
 import { parsePort, parseIntArg } from "../src/cli-args.js";
 import { renderUnitBody } from "../src/remote/unit.js";
+import { parseNetstatListening, parseTasklistCsv, parseLsofListening } from "../src/local/ports.js";
 
 test("parsePort: passes through valid ports and absent options", () => {
   assert.equal(parsePort("22", "--port"), 22);
@@ -22,6 +23,39 @@ test("parseIntArg: range bounds and option absence", () => {
   assert.equal(parseIntArg(undefined, "--lines", { min: 1, max: 100 }), undefined);
   assert.equal(parseIntArg("0", "--heartbeat", { min: 0, max: 86400 }), 0);
   assert.throws(() => parseIntArg("0", "--lines", { min: 1, max: 100 }), (e) => e.code === "E_USAGE" && e.message.includes("expected 1-100"));
+});
+
+test("parseNetstatListening: IPv4/IPv6 listeners, range filter, ignores non-LISTENING", () => {
+  const text = [
+    "",
+    "  TCP    127.0.0.1:3080     0.0.0.0:0      LISTENING     1234",
+    "  TCP    [::]:3099          [::]:0         LISTENING     88",
+    "  TCP    127.0.0.1:3500     1.2.3.4:55     ESTABLISHED   7",
+    "  TCP    127.0.0.1:4000     0.0.0.0:0      LISTENING     99"
+  ].join("\r\n");
+  const map = parseNetstatListening(text, 3000, 3999);
+  assert.deepEqual([...map.keys()].sort(), [3080, 3099]);
+  assert.deepEqual([...map.get(3080)], ["1234"]);
+  assert.deepEqual([...map.get(3099)], ["88"]);
+});
+
+test("parseTasklistCsv: pid -> image name", () => {
+  const names = parseTasklistCsv('"node.exe","1234"\r\n"sshd","88"\r\n');
+  assert.equal(names.get("1234"), "node.exe");
+  assert.equal(names.get("88"), "sshd");
+});
+
+test("parseLsofListening: port + pid/command label, range filter", () => {
+  const text = [
+    "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME",
+    "sshd     1234  user   3u  IPv6  0t0    TCP  *:3080 (LISTEN)",
+    "node       88  user   4u  IPv4  0t0    TCP  127.0.0.1:3099 (LISTEN)",
+    "node       77  user   5u  IPv4  0t0    TCP  127.0.0.1:4000 (LISTEN)"
+  ].join("\n");
+  assert.deepEqual(
+    parseLsofListening(text, 3000, 3999),
+    [[3080, "pid 1234 sshd"], [3099, "pid 88 node"]]
+  );
 });
 
 test("renderUnitBody: quotes paths (spaces survive), rejects quotes/newlines", () => {

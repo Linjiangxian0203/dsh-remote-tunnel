@@ -5,7 +5,7 @@ import { loadConfig } from "./config.js";
 import { readSshConfig, findSshAlias } from "./ssh-config.js";
 import { execRemote, spawnSsh, canSudo, remoteFacts } from "./ssh.js";
 import {
-  remoteAllocate, remoteReadRegistry, remoteUpdateRegistry,
+  remoteAllocate, remoteReadRegistry, remoteUpdateRegistry, remoteUpdateRegistryBatch,
   remoteOccupancy, remoteListeners, remoteProcessOwners, resolveRegistry
 } from "./remote/registry.js";
 import {
@@ -463,12 +463,12 @@ export class TunnelManager {
       changes.push(`released ${row.port} (${row.user})`);
     }
     if (opts.cleanStale === true) {
-      for (const row of verdicts.filter((v) => v.verdict === "stale")) {
-        await remoteUpdateRegistry(hostDef, this.cfg, ctx, registry, {
-          port: row.port, user: row.user, field: "status", value: "released"
-        });
-        changes.push(`cleaned stale ${row.port} (${row.user}) → released`);
-      }
+      // ONE flock+awk pass for every stale row (was: one ssh round-trip each).
+      const stale = verdicts.filter((v) => v.verdict === "stale");
+      await remoteUpdateRegistryBatch(hostDef, this.cfg, ctx, registry, stale.map((row) => ({
+        port: row.port, user: row.user, field: "status", value: "released"
+      })));
+      for (const row of stale) changes.push(`cleaned stale ${row.port} (${row.user}) → released`);
     }
     return { rows: verdicts, changes, registryPath: registry.path, registryKind: registry.kind };
   }
