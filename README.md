@@ -202,7 +202,7 @@ ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
 | `Permission denied (publickey)` / `sudo: a password is required` | Keys not set up / no NOPASSWD sudo. `ssh-copy-id` for the former; the latter is optional — the user-unit + fallback-registry path works without sudo. |
 | `Could not create directory '/home/xxx/.ssh'` + host key prompt | First connection needs the host key accepted; the plugin passes `accept-new` (TOFU) by default. |
 | Tunnel does not come back after a network drop | Reconnection is infinite by default; `status` shows whether the ssh pid is alive and `logs <host> --local` shows reconnect activity. If `reconnect.maxAttempts` is set, it stops at the cap. |
-| Tunnel stays connected but the local URL stays `not reachable` | On Windows OpenSSH 8.1, `-o ClearAllForwardings=yes` also clears the command-line `-L`, so the tunnel connected without forwarding. Fixed: the tunnel no longer passes that option (exec sessions still do). Upgrade to a build that includes `fix: don't clear the tunnel's own -L forward on Windows`. |
+| Tunnel stays connected but the local URL stays `not reachable` | On Windows OpenSSH 8.1, `-o ClearAllForwardings=yes` also cleared the command-line `-L`, so the tunnel connected without forwarding. **Fixed since 0.1.1**: the tunnel no longer passes that option (exec sessions still do). |
 | Registry unreadable (`/etc/dsh-ports.tsv missing`) | Created automatically on first allocation (requires write permission); without it the plugin falls back to `~/.dsh-ports.tsv` and `check` prints the admin setup command. |
 | Every ssh command is slow (~N seconds each) | On some servers, passing `ConnectTimeout` to ssh makes every connection wait out the full timeout even when the connect is instant. The default no longer passes it (`ssh.connectTimeout: 0`); enable it explicitly if you need it. |
 
@@ -219,7 +219,7 @@ The integration suite uses a fake `ssh` that interprets the plugin's remote comm
 
 - The tunnel and the remote dsh bind `127.0.0.1` only (dsh itself rejects `--host 0.0.0.0`)
 - The plugin never stores or transmits passwords, keys, or API keys; ssh always uses existing keys (BatchMode — no password prompts, no hangs)
-- The registry records no sensitive information (see `docs/registry-format.md`)
+- The registry records no sensitive information (see [`docs/registry-format.en.md`](docs/registry-format.en.md) · [中文](docs/registry-format.md))
 - Remote scripts only append/rewrite the registry and the systemd unit under `flock`; no other writes
 
 ## Non-goals
