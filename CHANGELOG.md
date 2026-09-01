@@ -6,6 +6,18 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-08-27
+
+### Changed
+- Config parse failures now raise the standard `TunnelError` with `E_CONFIG`
+  (hint-aware error formatting) instead of an ad-hoc error class.
+- Web-profile detection relies solely on the host-provided `webStartup`
+  context instead of sniffing `process.argv`, so renamed or copied web
+  profiles route correctly.
+
+This is the final planned release of the current roadmap — the plugin enters
+maintenance mode (compatibility checks on dsh upgrades, fixes on demand).
+
 ## [0.1.5] — 2026-08-27
 
 ### Changed

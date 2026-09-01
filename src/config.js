@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import yaml from "js-yaml";
+import { TunnelError } from "./errors.js";
 
 // Plugin config: $DSH_HOME/remote-tunnel/config.yaml — host definitions plus
 // allocation/tunnel defaults. Created with documented defaults on first use.
@@ -73,7 +74,7 @@ export function loadConfig(home) {
   try {
     user = yaml.load(readFileSync(path, "utf8")) ?? {};
   } catch (error) {
-    throw new TunnelConfigError(`cannot parse ${path}: ${error.message}`);
+    throw new TunnelError(`cannot parse ${path}: ${error.message}`, { code: "E_CONFIG" });
   }
   return { path, config: normalizeConfig(user) };
 }
@@ -83,11 +84,4 @@ export function saveConfig(home, config) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, "# dsh-remote-tunnel config — see README.md for every option.\n" + yaml.dump(config, { lineWidth: 100 }), "utf8");
   return path;
-}
-
-class TunnelConfigError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "TunnelConfigError";
-  }
 }
