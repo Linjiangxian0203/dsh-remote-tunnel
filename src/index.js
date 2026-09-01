@@ -19,23 +19,13 @@ export function defaultHome() {
   return join(base, "remote-tunnel");
 }
 
-/** True when the launcher itself was invoked for the `web` profile. */
-function invokedForWebProfile() {
-  const argv = process.argv;
-  if (argv[2] === "web") return true;
-  if (argv[2] === "--profile=web") return true;
-  if (argv[2] === "--profile" && argv[3] === "web") return true;
-  return false;
-}
-
 export function apply(ctx, config) {
   const home = typeof config?.home === "string" && config.home.length > 0 ? config.home : defaultHome();
   const args = ctx.get("cmdlineArgs").get();
   // The web app's startup row mounts `webStartup` when it owns the argument
-  // snapshot. Prefer the argv check (deterministic); the service check is a
-  // best-effort guard for renamed/copied web profiles.
-  const webOwnsCmdline = invokedForWebProfile() || ctx.get("webStartup") !== undefined;
-  if (!webOwnsCmdline) {
+  // snapshot; its presence (not the shape of process.argv) decides the mode,
+  // so renamed/copied web profiles route correctly too.
+  if (ctx.get("webStartup") === undefined) {
     runCli(ctx, home);
     return;
   }
