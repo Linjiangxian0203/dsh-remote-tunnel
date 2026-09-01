@@ -6,7 +6,7 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
-## [0.1.6] — 2026-08-27
+## [0.1.6]
 
 ### Changed
 - Config parse failures now raise the standard `TunnelError` with `E_CONFIG`
@@ -18,7 +18,7 @@ versions are published to npm and tagged `v*` on GitHub.
 This is the final planned release of the current roadmap — the plugin enters
 maintenance mode (compatibility checks on dsh upgrades, fixes on demand).
 
-## [0.1.5] — 2026-08-27
+## [0.1.5]
 
 ### Changed
 - `audit --clean-stale` rewrites every stale row in **one** flock+awk pass —
@@ -38,7 +38,7 @@ maintenance mode (compatibility checks on dsh upgrades, fixes on demand).
 - README troubleshooting row for the old Windows `ClearAllForwardings` issue
   no longer tells up-to-date users to upgrade (fixed since 0.1.1).
 
-## [0.1.4] — 2026-08-27
+## [0.1.4]
 
 ### Changed
 - Dependency management unified on **npm**: `package-lock.json` is committed
@@ -59,7 +59,7 @@ maintenance mode (compatibility checks on dsh upgrades, fixes on demand).
 ### Added
 - `CHANGELOG.md` (this file).
 
-## [0.1.3] — 2026-08-27
+## [0.1.3]
 
 ### Fixed
 - Registry updates no longer require write access to the registry's
@@ -75,7 +75,7 @@ maintenance mode (compatibility checks on dsh upgrades, fixes on demand).
   the registry and its lock file, and that only those two files carry the
   group-write bit.
 
-## [0.1.2] — 2026-08-27
+## [0.1.2]
 
 ### Fixed
 - Registry updates rewritten in place so a member's heartbeat/down no longer
@@ -94,7 +94,7 @@ maintenance mode (compatibility checks on dsh upgrades, fixes on demand).
 - CI workflow runs the test suite on every push/PR (Node 22.19, matching
   `engines`).
 
-## [0.1.1] — 2026-08-15
+## [0.1.1]
 
 ### Fixed
 - The long-lived tunnel no longer passes `ClearAllForwardings` (it also
