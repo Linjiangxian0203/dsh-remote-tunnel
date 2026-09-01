@@ -8,6 +8,8 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the release-notes step edits/creates the GitHub Release
     steps:
       - uses: actions/checkout@v4
 
