@@ -20,11 +20,9 @@ export async function findFreeLocalPort(range, { exclude = new Set() } = {}) {
     if (exclude.has(port)) continue;
     if (await probeOnce(port)) return port;
   }
-  const occupants = [];
-  for (let port = range[0]; port <= range[1]; port++) {
-    const info = await describeOccupant(port);
-    if (info !== null) occupants.push(`${port} (${info})`);
-  }
+  // One netstat + one tasklist/lsof pass for the WHOLE range (was: one pair
+  // of process spawns per port — O(N) spawns when the range is exhausted).
+  const occupants = await describeOccupants(range[0], range[1]);
   const detail = occupants.length > 0 ? `; occupied by: ${occupants.join(", ")}` : "";
   throw new TunnelError(`no free local port in ${range[0]}-${range[1]}${detail}`, { code: "E_NO_FREE_LOCAL_PORT" });
 }
@@ -48,34 +46,84 @@ function execFileText(file, args, { timeoutMs = 10000 } = {}) {
   });
 }
 
-/** Name the process holding a local port (Windows netstat+tasklist; POSIX lsof). */
-export async function describeOccupant(port) {
+/** Parse `netstat -ano -p tcp` output into Map<port, Set<pid>> for LISTENING
+ *  sockets whose local port falls in [lo, hi]. */
+export function parseNetstatListening(text, lo, hi) {
+  const result = new Map();
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.includes("LISTENING")) continue;
+    const fields = line.trim().split(/\s+/);
+    if (fields.length < 4) continue;
+    const port = Number.parseInt(fields[1].slice(fields[1].lastIndexOf(":") + 1), 10);
+    const pid = Number.parseInt(fields[fields.length - 1], 10);
+    if (!Number.isInteger(port) || !Number.isInteger(pid) || port < lo || port > hi) continue;
+    if (!result.has(port)) result.set(port, new Set());
+    result.get(port).add(String(pid));
+  }
+  return result;
+}
+
+/** Parse `tasklist /FO CSV /NH` output into Map<pid, image name>. */
+export function parseTasklistCsv(text) {
+  const names = new Map();
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^"([^"]*)","(\d+)"/.exec(line.trim());
+    if (match !== null) names.set(match[2], match[1]);
+  }
+  return names;
+}
+
+/** Parse `lsof -nP -iTCP -sTCP:LISTEN` output into [port, "pid N cmd"] pairs
+ *  for local ports in [lo, hi]. Locates NAME relative to the "(LISTEN)" token
+ *  so both 9- and 10-column layouts (SIZE/OFF present or empty) parse. */
+export function parseLsofListening(text, lo, hi) {
+  const result = [];
+  for (const line of text.split(/\r?\n/).slice(1)) {
+    const fields = line.trim().split(/\s+/);
+    const listenIdx = fields.indexOf("(LISTEN)");
+    if (listenIdx < 1) continue;
+    const name = fields[listenIdx - 1];
+    const port = Number.parseInt(name.slice(name.lastIndexOf(":") + 1), 10);
+    if (!Number.isInteger(port) || port < lo || port > hi) continue;
+    result.push([port, `pid ${fields[1]} ${fields[0]}`]);
+  }
+  return result;
+}
+
+/**
+ * Name the processes listening on EVERY local port in [lo, hi] with exactly
+ * one netstat + one tasklist (Windows) or one lsof (POSIX) invocation.
+ * Returns `["3080 (pid 1234 node.exe)", ...]` sorted by port.
+ */
+export async function describeOccupants(lo, hi) {
   try {
     if (process.platform === "win32") {
       const netstat = await execFileText("netstat", ["-ano", "-p", "tcp"]);
-      const pids = new Set();
-      for (const line of netstat.split(/\r?\n/)) {
-        if (!line.includes("LISTENING")) continue;
-        if (new RegExp(`:${port}\\s`).test(line)) {
-          const match = /\s(\d+)\s*$/.exec(line.trim());
-          if (match !== null) pids.add(match[1]);
-        }
+      const portPids = parseNetstatListening(netstat, lo, hi);
+      if (portPids.size === 0) return [];
+      const names = parseTasklistCsv(await execFileText("tasklist", ["/FO", "CSV", "/NH"]));
+      const out = [];
+      for (const port of [...portPids.keys()].sort((a, b) => a - b)) {
+        const label = [...portPids.get(port)]
+          .map((pid) => names.has(pid) ? `pid ${pid} ${names.get(pid)}` : `pid ${pid}`)
+          .join(", ");
+        out.push(`${port} (${label})`);
       }
-      for (const pid of pids) {
-        const tasklist = await execFileText("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"]);
-        const match = /"([^"]+)",\s*"(\d+)"/.exec(tasklist);
-        if (match !== null) return `pid ${match[2]} ${match[1]}`;
-      }
-      return pids.size > 0 ? `pid ${[...pids].join(",")}` : "unknown process";
+      return out;
     }
-    const lsof = await execFileText("lsof", ["-nP", "-i", `tcp:${port}`, "-sTCP:LISTEN"]);
-    const line = lsof.split(/\r?\n/)[1] ?? "";
-    const fields = line.trim().split(/\s+/);
-    if (fields.length >= 2) return `pid ${fields[1]} ${fields[0]}`;
-    return null;
+    const lsof = await execFileText("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN"]);
+    return parseLsofListening(lsof, lo, hi).sort((a, b) => a[0] - b[0]).map(([port, label]) => `${port} (${label})`);
   } catch {
-    return null;
+    return [];
   }
+}
+
+/** Name the process holding one local port (Windows netstat+tasklist; POSIX lsof). */
+export async function describeOccupant(port) {
+  const all = await describeOccupants(port, port);
+  if (all.length === 0) return null;
+  const match = /^\d+ \((.*)\)$/.exec(all[0]);
+  return match !== null ? match[1] : null;
 }
 
 /** Kill a local process tree (the ssh tunnel child). */

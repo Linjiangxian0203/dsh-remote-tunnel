@@ -527,15 +527,24 @@ async function runAllocate(state, params, script) {
 }
 
 function runUpdate(state, params, script) {
-  const [regRaw, port, user, col, val] = params;
-  const reg = mockPath(regRaw);
+  const reg = mockPath(params[0]);
+  // Single-row form: REG PORT USER COL VAL. Batch form: REG then repeated
+  // (PORT USER COL VAL) groups. Both rewrite the file in ONE pass, mirroring
+  // the real UPDATE_SHELL / UPDATE_BATCH_SHELL awk behavior.
+  const rest = params.slice(1);
+  if (rest.length === 0 || rest.length % 4 !== 0) {
+    return { code: 1, stdout: "", stderr: `bad update args: ${params.join(" ")}` };
+  }
+  const wanted = new Map();
+  for (let i = 0; i < rest.length; i += 4) {
+    wanted.set(`${rest[i]}\t${rest[i + 1]}`, { col: rest[i + 2], val: rest[i + 3] });
+  }
   const lines = readFileSync(reg, "utf8").split(/\r?\n/).filter((l) => l.length > 0);
   const updated = lines.map((line) => {
     if (line.startsWith("#")) return line;
     const fields = line.split("\t");
-    if (fields.length >= 7 && fields[0] === port && fields[1] === user) {
-      fields[col === "7" ? 6 : 5] = val;
-    }
+    const hit = fields.length >= 7 ? wanted.get(`${fields[0]}\t${fields[1]}`) : undefined;
+    if (hit !== undefined) fields[hit.col === "7" ? 6 : 5] = hit.val;
     return fields.join("\t");
   });
   const tmp = `${reg}.tmp`;

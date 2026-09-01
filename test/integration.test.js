@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -253,8 +253,24 @@ test("audit: stale detection, clean-stale, orphan after keep-service down", asyn
     const staleRow = auditStale.rows.find((r) => r.port === result.remotePort);
     assert.equal(staleRow.verdict, "stale");
 
+    // plant a second stale row (same user — the fallback registry lists own
+    // rows only) so clean-stale exercises the BATCH update path. Translate the
+    // POSIX registry path into the mock root the same way the ssh shim does —
+    // a raw appendFileSync("/etc/...") would hit the Windows drive root.
+    const targets0 = await manager.resolveTargets("mock");
+    const registryFile = join(env.mockRoot, ...targets0.registry.path.split("/").filter((s) => s.length > 0));
+    appendFileSync(registryFile, `3999\t${staleRow.user}\t/home/${staleRow.user}\tghost\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tin-use\n`);
+
     const cleaned = await manager.audit("mock", { cleanStale: true });
     assert.ok(cleaned.changes.some((c) => c.includes(`cleaned stale ${result.remotePort}`)));
+    assert.ok(cleaned.changes.some((c) => c.includes("cleaned stale 3999 ")));
+    // rows are the PRE-clean snapshot; both rows were judged stale in it
+    assert.equal(cleaned.rows.find((r) => r.port === 3999).verdict, "stale");
+    assert.equal(cleaned.rows.find((r) => r.port === result.remotePort).verdict, "stale");
+    // and a fresh audit confirms the batch write actually landed
+    const afterClean = await manager.audit("mock", {});
+    assert.equal(afterClean.rows.find((r) => r.port === 3999).status, "released");
+    assert.equal(afterClean.rows.find((r) => r.port === result.remotePort).status, "released");
 
     // tear the first tunnel down, then re-up and down --keep-service
     // -> released row + listening port = orphan

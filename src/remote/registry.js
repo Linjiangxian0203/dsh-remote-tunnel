@@ -98,6 +98,26 @@ awk -F '\\t' -v OFS='\\t' -v port="$PORT" -v user="$USER_" -v col="$COL" -v val=
 ' "$REG" > "$TMP"
 cat "$TMP" > "$REG"`;
 
+// Batch variant: argv is REG followed by (port user col val) groups; ONE awk
+// pass rewrites every matching row. Same mktemp + trap + in-place `cat >`
+// pattern as the single-row path, so inode/owner/group semantics match.
+const UPDATE_BATCH_SHELL = `set -eu
+REG=$1; shift
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
+awk -F '\\t' -v OFS='\\t' '
+  BEGIN {
+    for (i = 2; i < ARGC; i += 4) key[ARGV[i] SUBSEP ARGV[i+1]] = ARGV[i+2] SUBSEP ARGV[i+3];
+    ARGC = 2;
+  }
+  {
+    k = $1 SUBSEP $2
+    if (k in key) { split(key[k], v, SUBSEP); if (v[1] == "7") $7 = v[2]; else $6 = v[2]; }
+    print
+  }
+' "$REG" "$@" > "$TMP"
+cat "$TMP" > "$REG"`;
+
 const OCCUPANCY_NODE_PROBE = `const net = require("net");
 const ports = process.argv.slice(1).map(Number).filter(Number.isFinite);
 const out = [];
@@ -184,16 +204,22 @@ export async function remoteAllocate(hostDef, cfg, ctx, registry, { range, user,
 
 /** Update one registry field (6 = last_heartbeat, 7 = status) under flock. */
 export async function remoteUpdateRegistry(hostDef, cfg, ctx, registry, { port, user, field, value }) {
-  const args = [
-    ...flockArgs(registry),
-    registry.path,
-    String(port), sanitizeField(user),
-    field === "status" ? "7" : "6",
-    sanitizeField(value)
-  ];
-  const result = await execRemote(hostDef, args.join(" "), { cfg, stdin: UPDATE_SHELL, timeoutMs: 60000 });
+  await remoteUpdateRegistryBatch(hostDef, cfg, ctx, registry, [{ port, user, field, value }]);
+}
+
+/**
+ * Update several (port, user) rows in ONE flock+awk pass under flock — used
+ * by audit's clean-stale so N stale rows cost one ssh round-trip instead of N.
+ */
+export async function remoteUpdateRegistryBatch(hostDef, cfg, ctx, registry, updates) {
+  if (updates.length === 0) return;
+  const args = [...flockArgs(registry), registry.path];
+  for (const { port, user, field, value } of updates) {
+    args.push(String(port), sanitizeField(user), field === "status" ? "7" : "6", sanitizeField(value));
+  }
+  const result = await execRemote(hostDef, args.join(" "), { cfg, stdin: UPDATE_BATCH_SHELL, timeoutMs: 60000 });
   if (result.code !== 0) {
-    throw new TunnelError(`registry update failed: ${result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`}`, { code: "E_REGISTRY_WRITE" });
+    throw new TunnelError(`registry batch update failed: ${result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`}`, { code: "E_REGISTRY_WRITE" });
   }
 }
 
