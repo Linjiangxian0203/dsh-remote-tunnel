@@ -6,6 +6,15 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+## [0.1.8]
+
+### Fixed
+- The one-time-token launch URL fetch in `up` no longer races with the web
+  startup print (it appears 2-4s after systemd reports "Started") and ignores
+  stale, pre-token URL lines from older dsh versions still in the journal
+  window: only the last `?token=` URL after the most recent unit start counts,
+  retried up to 4x so the later print is caught.
+
 ## [0.1.7]
 
 ### Changed
