@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="360" viewBox="0 0 880 360" font-family="'Segoe UI', system-ui, sans-serif">
+  <rect width="880" height="360" rx="14" fill="#0d1117"/>
+  <text x="440" y="34" text-anchor="middle" fill="#e6edf3" font-size="15" font-weight="600">dsh-remote-tunnel</text>
+
+  <!-- local machine -->
+  <rect x="40" y="72" width="250" height="200" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="165" y="98" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Local machine</text>
+  <text x="165" y="120" text-anchor="middle" fill="#8b949e" font-size="12">本地电脑 (Windows/macOS/Linux)</text>
+  <rect x="66" y="140" width="198" height="46" rx="8" fill="#0d1117" stroke="#484f58"/>
+  <text x="165" y="158" text-anchor="middle" fill="#79c0ff" font-size="12" font-family="ui-monospace, monospace">ssh -N -L 127.0.0.1:3081</text>
+  <text x="165" y="176" text-anchor="middle" fill="#79c0ff" font-size="12" font-family="ui-monospace, monospace">↦ 127.0.0.1:3082</text>
+  <text x="165" y="212" text-anchor="middle" fill="#7ee787" font-size="12">auto-reconnect · heartbeat · port auto-shift</text>
+  <text x="165" y="230" text-anchor="middle" fill="#7ee787" font-size="12">断线自动重连 · 本地端口自动顺延</text>
+  <rect x="66" y="244" width="198" height="20" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="165" y="258" text-anchor="middle" fill="#8b949e" font-size="11">browser: http://127.0.0.1:3081</text>
+
+  <!-- tunnel arrow -->
+  <path d="M 290 172 C 350 172 350 172 410 172" fill="none" stroke="#58a6ff" stroke-width="3" stroke-dasharray="8 5"/>
+  <path d="M 405 165 L 414 172 L 405 179" fill="none" stroke="#58a6ff" stroke-width="3"/>
+  <text x="352" y="158" text-anchor="middle" fill="#58a6ff" font-size="12">SSH tunnel</text>
+  <text x="352" y="140" text-anchor="middle" fill="#8b949e" font-size="11">SSH 隧道</text>
+
+  <!-- remote server -->
+  <rect x="430" y="72" width="410" height="240" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="635" y="98" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Remote Linux server</text>
+  <text x="635" y="120" text-anchor="middle" fill="#8b949e" font-size="12">远程 Linux 服务器 (无需 root)</text>
+
+  <!-- dsh web -->
+  <rect x="456" y="140" width="170" height="62" rx="8" fill="#0d1117" stroke="#3fb950"/>
+  <text x="541" y="163" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="600">dsh web</text>
+  <text x="541" y="183" text-anchor="middle" fill="#8b949e" font-size="11">127.0.0.1:3082 · systemd</text>
+  <text x="541" y="196" text-anchor="middle" fill="#8b949e" font-size="11">会话/文件在服务器上</text>
+
+  <!-- registry -->
+  <rect x="650" y="140" width="170" height="62" rx="8" fill="#0d1117" stroke="#d29922"/>
+  <text x="735" y="163" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Port registry</text>
+  <text x="735" y="183" text-anchor="middle" fill="#8b949e" font-size="11">/etc/dsh-ports.tsv</text>
+  <text x="735" y="196" text-anchor="middle" fill="#8b949e" font-size="11">flock 原子分配 · audit 审查</text>
+
+  <!-- multi-user note -->
+  <text x="635" y="230" text-anchor="middle" fill="#8b949e" font-size="12">multi-user: each member gets a dedicated remote port</text>
+  <text x="635" y="248" text-anchor="middle" fill="#8b949e" font-size="12">多人共用: 每人自动分配独立端口并登记留档</text>
+
+  <!-- install command -->
+  <rect x="60" y="300" width="760" height="42" rx="8" fill="#161b22" stroke="#30363d"/>
+  <text x="440" y="318" text-anchor="middle" fill="#e6edf3" font-size="12" font-family="ui-monospace, monospace">dsh plugin --profile remote add dsh-remote-tunnel</text>
+  <text x="440" y="334" text-anchor="middle" fill="#79c0ff" font-size="12" font-family="ui-monospace, monospace">dsh --profile remote up &lt;host&gt; --open</text>
+</svg>
