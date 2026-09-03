@@ -198,6 +198,7 @@ ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
 | `Could not create directory '/home/xxx/.ssh'` + host key 提示 | 首次连接需接受主机指纹,插件默认 `accept-new`(TOFU),已在自动处理。 |
 | 断网后隧道没恢复 | 默认无限重连,`status` 看 ssh pid 是否 alive;`logs <host> --local` 看重连日志。若设了 `reconnect.maxAttempts`,达到上限会停止。 |
 | 隧道进程一直活着,但本地 URL 始终 `not reachable`(端口不通) | Windows OpenSSH 8.1 会把 `-o ClearAllForwardings=yes` 连同命令行自己的 `-L` 一起清掉,导致隧道只连接、不转发。**已于 0.1.1 修复**:隧道不再传该选项(exec 会话仍保留)。 |
+| 打开隧道 URL 只显示 `dsh web authentication required; reopen the URL printed by dsh web.` | dsh web ≥ 0.1.2-rc 用启动时打印的一次性 token URL 鉴权。`up` 现在会打印改写成本地端口的带 token 地址(`auth:` 行)。若已过期(服务重启过),把 `logs <host>` 里的 `dsh web: http://…?token=…` 整行复制到浏览器地址栏。 |
 | 登记表读不到(`/etc/dsh-ports.tsv missing`) | 首次分配时自动创建(需写入权限);无权限时自动降级到 `~/.dsh-ports.tsv`,`check` 会给出管理员初始化命令。 |
 | 每条 ssh 命令都慢 ~N 秒 | 部分服务器上给 ssh 传 `ConnectTimeout` 会让每条连接都等满超时(即使秒连)。默认已不传该参数(`ssh.connectTimeout: 0`);需要时再显式打开。 |
 

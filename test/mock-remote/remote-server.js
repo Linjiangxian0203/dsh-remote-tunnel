@@ -30,5 +30,7 @@ server.on("error", (error) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  journal(`dsh web: http://127.0.0.1:${port}`);
+  // Mimic dsh web >= 0.1.2-rc: the launch URL carries a one-time token and is
+  // printed to stdout (the unit journal) with an optional LAN variant.
+  journal(`dsh web: http://127.0.0.1:${port}/?token=mock-token-${port} (LAN: http://192.168.1.5:${port}/?token=mock-token-${port})`);
 });

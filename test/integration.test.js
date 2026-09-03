@@ -111,6 +111,11 @@ test("up → real HTTP through the tunnel → status → down (happy path)", asy
   try {
     const result = await manager.up("mock");
     assert.ok(result.url.startsWith("http://127.0.0.1:3208"), result.url);
+    // dsh web (>= 0.1.2-rc) token URL: rewritten to the LOCAL tunnel port with
+    // the token preserved; the plain URL must NOT carry it.
+    assert.ok(result.authUrl !== undefined && result.authUrl !== null, "authUrl missing");
+    assert.ok(result.authUrl.startsWith(`http://127.0.0.1:${result.localPort}/?token=mock-token-${result.remotePort}`), result.authUrl);
+    assert.ok(!result.url.includes("token"), result.url);
     const { status, text } = await httpGet(result.url);
     assert.equal(status, 200);
     assert.ok(text.includes(`mock dsh web on ${result.remotePort}`));
