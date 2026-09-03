@@ -31,6 +31,9 @@ server.on("error", (error) => {
 
 server.listen(port, "127.0.0.1", () => {
   // Mimic dsh web >= 0.1.2-rc: the launch URL carries a one-time token and is
-  // printed to stdout (the unit journal) with an optional LAN variant.
+  // printed to stdout (the unit journal) with an optional LAN variant. The
+  // plain line first simulates a stale pre-token journal entry, so the plugin
+  // must pick the LAST token-carrying URL logged after the unit start.
+  journal(`dsh web: http://127.0.0.1:${port}`);
   journal(`dsh web: http://127.0.0.1:${port}/?token=mock-token-${port} (LAN: http://192.168.1.5:${port}/?token=mock-token-${port})`);
 });

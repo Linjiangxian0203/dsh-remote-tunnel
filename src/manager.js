@@ -351,12 +351,25 @@ export class TunnelManager {
     // the launch URL it prints at startup (into the unit journal). Surface an
     // equivalent URL pointing at the local tunnel port so `up` output opens
     // the page directly; fall back to a hint when the journal can't supply it.
+    //
+    // Two real-world races: the web prints its URL 2-4s AFTER systemd reports
+    // "Started", and an early fetch would otherwise match a STALE line from a
+    // previous run (pre-token versions printed a plain URL — real journal
+    // evidence). So only the segment after the last "Started dsh web" counts,
+    // the LAST `dsh web:` URL in it must carry `?token=`, and the fetch
+    // retries a few times to span the print delay.
     let authUrl = null;
     try {
-      const journal = await remote.scope.journal(remote.hostDef, this.cfg, this.ctxFor(alias), 200);
-      const match = /dsh web:\s*(\S+)/.exec(journal);
-      if (match !== null) {
+      for (let attempt = 0; attempt < 4 && authUrl === null; attempt++) {
+        if (attempt > 0) await sleep(1500);
+        const journal = await remote.scope.journal(remote.hostDef, this.cfg, this.ctxFor(alias), 200);
+        const started = journal.lastIndexOf("Started dsh web");
+        const sinceStart = started === -1 ? journal : journal.slice(started);
+        const matches = [...sinceStart.matchAll(/dsh web:\s*(http\S+)/g)];
+        const match = matches.length > 0 ? matches[matches.length - 1] : null;
+        if (match === null) continue;
         const url = new URL(match[1]);
+        if (url.searchParams.get("token") === null) continue; // stale/plain line — keep waiting
         url.hostname = "127.0.0.1";
         url.port = String(localPort);
         authUrl = url.href;
