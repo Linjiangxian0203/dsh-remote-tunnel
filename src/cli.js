@@ -185,11 +185,17 @@ Commands:
       });
       reporter.out("");
       reporter.out(`  local:    ${result.url}`);
+      if (result.authUrl !== null && result.authUrl !== undefined) {
+        reporter.out(`  auth:     ${result.authUrl}`);
+        reporter.out(`            (one-time token; run 'logs ${alias}' if the page asks for a new URL)`);
+      } else {
+        reporter.out(`  auth:     — run 'logs ${alias}' for the printed dsh web URL (it may carry a one-time token)`);
+      }
       reporter.out(`  remote:   127.0.0.1:${result.remotePort} (unit ${result.unit})`);
       reporter.out(`  registry: ${result.registryPath} — port ${result.remotePort} in-use by ${result.unit.replace(/^dsh-web-/, "")}`);
       reporter.out(`  stop:     dsh --profile remote down ${alias}   (or Ctrl+C)`);
       reporter.out("");
-      if (options.open === true) manager.open(alias);
+      if (options.open === true) manager.open(alias, result.authUrl ?? undefined);
       // stays resident: the tunnel supervisor keeps this process alive
     }).then(() => { /* resident */ }, (error) => { printError(error); exit?.(1); });
   });

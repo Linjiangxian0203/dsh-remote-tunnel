@@ -215,7 +215,7 @@ export class TunnelManager {
 
     await this.waitForRemotePort(targets, port, this.cfg.defaults.remoteWaitSeconds);
     return {
-      hostDef, user, workspace, unit: scope.unit, unitScope: scope.type, port,
+      hostDef, user, workspace, unit: scope.unit, unitScope: scope.type, scope, port,
       registryPath: registry.path, registryKind: registry.kind,
       reused: reused && !allocated,
       remoteUrl: `http://127.0.0.1:${port}`
@@ -346,9 +346,29 @@ export class TunnelManager {
     this.startHeartbeat(alias, { port: remote.port, user: remote.user });
 
     this.event({ kind: "up", alias, url: `http://127.0.0.1:${localPort}`, remotePort: remote.port, localPort });
+
+    // dsh web (>= 0.1.2-rc) gates its UI behind a one-time token carried in
+    // the launch URL it prints at startup (into the unit journal). Surface an
+    // equivalent URL pointing at the local tunnel port so `up` output opens
+    // the page directly; fall back to a hint when the journal can't supply it.
+    let authUrl = null;
+    try {
+      const journal = await remote.scope.journal(remote.hostDef, this.cfg, this.ctxFor(alias), 200);
+      const match = /dsh web:\s*(\S+)/.exec(journal);
+      if (match !== null) {
+        const url = new URL(match[1]);
+        url.hostname = "127.0.0.1";
+        url.port = String(localPort);
+        authUrl = url.href;
+      }
+    } catch {
+      // best effort: the plain URL plus the log hint below still work
+    }
+
     return {
       alias,
       url: `http://127.0.0.1:${localPort}`,
+      authUrl,
       localPort,
       remotePort: remote.port,
       unit: remote.unit,
@@ -577,10 +597,10 @@ export class TunnelManager {
     return { text };
   }
 
-  open(alias) {
+  open(alias, urlOverride) {
     const state = readState(this.home, alias);
     if (state === undefined) throw new TunnelError(`no tunnel state for "${alias}"`, { code: "E_NOT_UP" });
-    const url = state.url;
+    const url = urlOverride ?? state.url;
     // Platform-specific browser launcher: Windows uses `cmd start`, macOS uses
     // `open`, everything else uses `xdg-open`.
     const launcher = process.platform === "win32"

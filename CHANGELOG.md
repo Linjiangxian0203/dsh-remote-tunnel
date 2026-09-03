@@ -6,6 +6,16 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+## [0.1.7]
+
+### Changed
+- `up` now surfaces the dsh web launch URL: since dsh web 0.1.2-rc gates its
+  UI behind a one-time token printed at startup, `up` fetches the unit journal
+  and prints the token URL rewritten to the local tunnel port (`auth:` line),
+  and `up --open` opens that URL. If the journal cannot supply it, `up` points
+  you at `logs <host>`.
+- READMEs document the new token flow.
+
 ## [0.1.6]
 
 ### Changed
