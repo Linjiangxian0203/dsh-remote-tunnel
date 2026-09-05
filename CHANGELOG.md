@@ -6,6 +6,29 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+## [0.1.9]
+
+### Added
+- New `bootstrap <host>` subcommand: prepares the ssh account the alias logs
+  in as — Node ≥ 22.19 (when installable), dsh into that account's
+  `~/.npm-global`, `~/.dsh`, systemd lingering and the npm-global PATH rc
+  entries; idempotent, so each labmate runs it once for their own user.
+  Streams the packaged `scripts/bootstrap-remote.sh` to `sh -s` (single
+  source of truth with the manual flow).
+- `bootstrap <host> --upgrade` reinstall/updates remote dsh to the latest
+  version (the "how do I update remote dsh" answer, now one command).
+- Remote dsh discovery now falls back to probing `~/.npm-global/bin/dsh`,
+  so accounts whose ssh-channel PATH omits the npm-global dir still resolve
+  dsh correctly (per-account PATH differences are no longer a blocker).
+- `/remote bootstrap <host> [--upgrade]` slash command (web profile).
+
+### Changed
+- `check` probes node/dsh through the discovered absolute paths (not bare
+  command names) and its Node/dsh hints point at `bootstrap <host>`.
+- `up`/`provision` errors for missing Node/dsh now point at `bootstrap`.
+- READMEs (EN/ZH) document the per-account flow: multi-user section, command
+  list, requirements, troubleshooting.
+
 ## [0.1.8]
 
 ### Fixed
