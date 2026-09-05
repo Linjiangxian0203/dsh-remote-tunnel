@@ -6,7 +6,7 @@ import { TunnelError } from "./errors.js";
 // tunnel supervisor live), so the web panel can drive the same manager the
 // CLI uses.
 
-const USAGE = "/remote hosts | check <host> | up <host> [--open] | down [host] | status [host] | audit <host> | open [host]";
+const USAGE = "/remote hosts | check <host> | bootstrap <host> [--upgrade] | up <host> [--open] | down [host] | status [host] | audit <host> | open [host]";
 
 export function registerSlashCommands(ctx, home) {
   const commands = ctx.get("commands");
@@ -23,7 +23,7 @@ export function registerSlashCommands(ctx, home) {
   commands.register({
     name: "remote",
     description: "remote host tunnel manager: list/check/up/down/status/audit remote dsh web tunnels",
-    input: { hint: "hosts | check <host> | up <host> | down | status | audit <host>" },
+    input: { hint: "hosts | check <host> | bootstrap <host> | up <host> | down | status | audit <host>" },
     handler: async (invocation) => {
       const tokens = invocation.rawInput.trim().split(/\s+/).filter((t) => t.length > 0);
       const sub = tokens[0];
@@ -41,6 +41,11 @@ export function registerSlashCommands(ctx, home) {
             requireArg(tokens, 1, "check <host>");
             const { steps } = await manager.check(tokens[1]);
             return { kind: "success", text: steps.map((s) => `${s.ok ? "✓" : "✗"} ${s.name}: ${s.detail}`).join("\n") };
+          }
+          case "bootstrap": {
+            requireArg(tokens, 1, "bootstrap <host>");
+            const result = await manager.bootstrap(tokens[1], { upgrade: tokens.includes("--upgrade") });
+            return { kind: "success", text: result.output.trim() + `\nnext: /remote up ${result.hostDef.alias}` };
           }
           case "up": {
             // Split flags from the host name: `up <host> [--open]`. A bare
