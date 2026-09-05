@@ -11,6 +11,7 @@ import {
 import {
   UnitScope, provisionUnit, ensureLinger, resolveUnitScope
 } from "./remote/unit.js";
+import { readBootstrapScript } from "./remote/bootstrap.js";
 import { findFreeLocalPort, localPortResponds, killProcessTree, pidAlive } from "./local/ports.js";
 import { readState, writeState, removeState, listStates, logFile } from "./local/state.js";
 import { Tunnel } from "./local/tunnel.js";
@@ -135,10 +136,10 @@ export class TunnelManager {
     const targets = await this.resolveTargets(alias);
     const { hostDef, facts, user, registry, scope } = targets;
     if (facts.nodePath === null) {
-      throw new TunnelError(`node not found on ${alias} — the remote dsh requires Node >= 22.19 (run scripts/bootstrap-remote.sh on the server)`, { code: "E_REMOTE_NO_NODE" });
+      throw new TunnelError(`node not found on ${alias} — the remote dsh requires Node >= 22.19 (run 'dsh --profile remote bootstrap ${alias}')`, { code: "E_REMOTE_NO_NODE" });
     }
     if (facts.dshPath === null) {
-      throw new TunnelError(`dsh not found on ${alias} — install @deepseek-ai/dsh on the server first`, { code: "E_REMOTE_NO_DSH" });
+      throw new TunnelError(`dsh not found on ${alias} — run 'dsh --profile remote bootstrap ${alias}' to install it into the account's ~/.npm-global`, { code: "E_REMOTE_NO_DSH" });
     }
     const workspace = hostDef.workspace ?? facts.home;
     const source = os.hostname();
@@ -506,6 +507,33 @@ export class TunnelManager {
     return { rows: verdicts, changes, registryPath: registry.path, registryKind: registry.kind };
   }
 
+  /**
+   * Idempotently prepare the remote ACCOUNT the ssh alias logs in as:
+   * Node >= 22.19 (when possible), dsh into ~/.npm-global, ~/.dsh, systemd
+   * linger and PATH rc entries. Streams the packaged bootstrap script to
+   * `sh -s` — the same script users can run manually, one source of truth.
+   * Each labmate runs this once for their own account (e.g. bob, alice);
+   * `upgrade` reinstalls dsh at the latest version even when present.
+   */
+  async bootstrap(alias, { upgrade = false } = {}) {
+    const hostDef = this.resolveHost(alias);
+    this.targets.delete(alias); // installation may change facts — refresh on next resolve
+    const script = readBootstrapScript();
+    const result = await execRemote(hostDef, "sh -s", {
+      cfg: this.cfg,
+      stdin: script,
+      env: upgrade ? { DSHRT_UPGRADE: "1" } : undefined,
+      timeoutMs: 300000
+    });
+    if (result.code !== 0) {
+      throw new TunnelError(
+        `bootstrap failed on ${alias}: ${(result.stderr || result.stdout).trim() || `exit ${result.code}`}`,
+        { code: "E_BOOTSTRAP", hint: "read the message above — missing Node with no passwordless sudo, or npm/network issues are the usual causes" }
+      );
+    }
+    return { hostDef, output: result.stdout };
+  }
+
   async check(alias) {
     const hostDef = this.resolveHost(alias);
     const steps = [];
@@ -515,16 +543,27 @@ export class TunnelManager {
     push("ssh connectivity", reach.code === 0, reach.code === 0 ? "ok" : reach.stderr.trim().split("\n")[0] ?? `exit ${reach.code}`, "check your key (ssh-keygen, ssh-copy-id) and that the host/port are right");
     if (reach.code !== 0) return { steps, allOk: false };
 
-    const version = await execRemote(hostDef, "node --version 2>&1 || true", { cfg: this.cfg, timeoutMs: 30000 });
+    // Facts first: node/dsh may live in a per-account ~/.npm-global that the
+    // ssh channel's PATH does not cover, so probes must use the discovered
+    // absolute paths instead of bare command names.
+    const facts = await remoteFacts(hostDef, this.cfg).catch(() => null);
+    if (facts === null) {
+      push("remote facts", false, "id/getent failed", "ssh user must be able to log in");
+      return { steps, allOk: false };
+    }
+
+    const nodeBin = facts.nodePath ?? "node";
+    const version = await execRemote(hostDef, `${nodeBin} --version 2>&1 || true`, { cfg: this.cfg, timeoutMs: 30000 });
     const nodeOk = /^v(\d+)\.(\d+)\./.test(version.stdout.trim()) && (() => {
       const [, major, minor] = /^v(\d+)\.(\d+)\./.exec(version.stdout.trim());
       return Number(major) > 22 || (Number(major) === 22 && Number(minor) >= 19);
     })();
-    push("node >= 22.19", nodeOk, version.stdout.trim() || "node not found", "run scripts/bootstrap-remote.sh on the server", nodeOk ? "info" : "error");
+    push("node >= 22.19", nodeOk, version.stdout.trim() || "node not found", `run 'dsh --profile remote bootstrap ${alias}'`, nodeOk ? "info" : "error");
 
-    const dsh = await execRemote(hostDef, "dsh --version 2>&1 || true", { cfg: this.cfg, timeoutMs: 30000 });
+    const dshBin = facts.dshPath ?? "dsh";
+    const dsh = await execRemote(hostDef, `${dshBin} --version 2>&1 || true`, { cfg: this.cfg, timeoutMs: 30000 });
     const dshOk = dsh.code === 0 && dsh.stdout.trim().length > 0;
-    push("dsh installed", dshOk, dsh.stdout.trim() || "dsh not found", "npm i -g @deepseek-ai/dsh (see README)");
+    push("dsh installed", dshOk, dsh.stdout.trim() || "dsh not found", `run 'dsh --profile remote bootstrap ${alias}'`);
 
     if (this.cfg.defaults.registry.sudo !== "never") {
       const sudoOk = await canSudo(hostDef, this.cfg);
@@ -532,11 +571,6 @@ export class TunnelManager {
       this.sudoStates.set(alias, { canSudo: sudoOk });
     }
 
-    const facts = await remoteFacts(hostDef, this.cfg).catch(() => null);
-    if (facts === null) {
-      push("remote facts", false, "id/getent failed", "ssh user must be able to log in");
-      return { steps, allOk: false };
-    }
     const user = hostDef.user ?? facts.user;
     const ctx = this.ctxFor(alias);
     const registry = await resolveRegistry(hostDef, this.cfg, ctx, facts);

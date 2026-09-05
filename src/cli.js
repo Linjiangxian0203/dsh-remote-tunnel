@@ -48,6 +48,7 @@ Commands:
   hosts add <alias>         define a remote host
   hosts rm <alias>          remove a host definition
   check <host>              readiness diagnostics for a remote host
+  bootstrap <host>          install the ACCOUNT's remote prerequisites (Node/dsh/linger, idempotent); --upgrade
   provision <host>          allocate a remote port, install the systemd unit, start dsh web
   up <host>                 provision + open the SSH tunnel (auto-reconnect, heartbeat)
   down [host]               stop the tunnel, release the registry entry, stop the unit
@@ -150,6 +151,21 @@ Commands:
     reporter.out(allOk ? "✓ all checks passed" : "✗ some checks failed — fix them and re-run check");
     return allOk ? 0 : 1;
   });
+
+  // ---- bootstrap -----------------------------------------------------------
+  const bootstrapCmd = program.command("bootstrap <host>")
+    .description("install the account's remote prerequisites: Node >= 22.19 (when possible), dsh into ~/.npm-global, ~/.dsh, systemd linger (idempotent; runs as whoever the ssh alias logs in as)")
+    .option("--upgrade", "reinstall/update dsh to the latest version even if already installed");
+  bootstrapCmd.action((alias, options) => {
+    Promise.resolve().then(async () => {
+      const result = await manager.bootstrap(alias, { upgrade: options.upgrade === true });
+      reporter.out(result.output.trimEnd());
+      reporter.out("");
+      reporter.out(`  next:     dsh --profile remote check ${alias}`);
+      reporter.out(`            dsh --profile remote up ${alias} --open`);
+    }).then(() => exit?.(0), (error) => { printError(error); exit?.(1); });
+  });
+  bootstrapCmd.showHelpAfterError();
 
   // ---- provision -----------------------------------------------------------
   const provisionCmd = program.command("provision <host>")

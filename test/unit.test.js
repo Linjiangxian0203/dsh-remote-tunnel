@@ -5,6 +5,7 @@ import { parseTsv, sanitizeField, REGISTRY_COLUMNS } from "../src/remote/registr
 import { normalizeConfig, DEFAULT_CONFIG } from "../src/config.js";
 import { parsePort, parseIntArg } from "../src/cli-args.js";
 import { renderUnitBody } from "../src/remote/unit.js";
+import { readBootstrapScript, BOOTSTRAP_MARKER } from "../src/remote/bootstrap.js";
 import { parseNetstatListening, parseTasklistCsv, parseLsofListening } from "../src/local/ports.js";
 
 test("parsePort: passes through valid ports and absent options", () => {
@@ -151,4 +152,14 @@ test("normalizeConfig merges user values over defaults", () => {
 
 test("REGISTRY_COLUMNS matches the documented order", () => {
   assert.deepEqual(REGISTRY_COLUMNS, ["port", "user", "workspace", "source", "created_at", "last_heartbeat", "status"]);
+});
+
+test("bootstrap script: shim marker, idempotent install, upgrade + PATH branches", () => {
+  const script = readBootstrapScript();
+  assert.ok(script.includes(BOOTSTRAP_MARKER), "shim marker must be present in the script");
+  assert.ok(script.includes('export PATH="$NPM_PREFIX/bin:$PATH"'), "script must expose ~/.npm-global on PATH");
+  assert.ok(script.includes("DSHRT_UPGRADE"), "upgrade branch must exist");
+  assert.ok(script.includes(".npm-global/bin:$PATH"), "PATH rc persistence must be present");
+  assert.ok(script.includes("loginctl enable-linger"), "linger must be enabled");
+  assert.ok(!script.includes("it does NOT install"), "stale note removed");
 });

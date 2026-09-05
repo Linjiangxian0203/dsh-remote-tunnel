@@ -418,3 +418,64 @@ test("shared-direct: registry update keeps the shared group (no mv inode swap)",
     await teardown([manager], env);
   }
 });
+
+test("bootstrap: a fresh account runs it once, then check/up work (per-account setup)", async () => {
+  const env = setup();
+  // This account has never had dsh: the dsh-absent marker simulates it.
+  mkdirSync(join(env.mockRoot, "dsh-absent"), { recursive: true });
+  writeFileSync(join(env.mockRoot, "dsh-absent", "mockuser"), "", "utf8");
+  const manager = makeManager(env.home);
+  try {
+    // without dsh, up fails with an actionable error pointing at bootstrap
+    await assert.rejects(() => manager.up("mock"), (error) =>
+      error.code === "E_REMOTE_NO_DSH" && error.message.includes("bootstrap"));
+
+    const run = await manager.bootstrap("mock");
+    assert.ok(run.output.includes("installing @deepseek-ai/dsh"), run.output);
+    assert.ok(run.output.includes("linger enabled for mockuser"), run.output);
+    assert.ok(existsSync(join(env.mockRoot, "home", "mockuser", ".npm-global", "bin", "dsh")), "dsh file must land in the account's ~/.npm-global");
+    assert.ok(existsSync(join(env.mockRoot, "home", "mockuser", ".dsh")), "~/.dsh must exist");
+
+    // check now reports dsh installed; second bootstrap is idempotent
+    const report = await manager.check("mock");
+    assert.equal(report.steps.find((s) => s.name === "dsh installed").ok, true, JSON.stringify(report.steps));
+    const again = await manager.bootstrap("mock");
+    assert.ok(again.output.includes("dsh already installed"), again.output);
+
+    // and up now succeeds end-to-end for this account
+    const result = await manager.up("mock");
+    const { status } = await httpGet(result.url);
+    assert.equal(status, 200);
+    await manager.down("mock");
+  } finally {
+    await teardown([manager], env);
+  }
+});
+
+test("bootstrap --upgrade reinstalls dsh even when already present", async () => {
+  const env = setup();
+  const manager = makeManager(env.home);
+  try {
+    const run = await manager.bootstrap("mock", { upgrade: true });
+    assert.ok(run.output.includes("upgrading @deepseek-ai/dsh"), run.output);
+    assert.ok(existsSync(join(env.mockRoot, "home", "mockuser", ".npm-global", "bin", "dsh")));
+    // a plain run afterwards must not reinstall
+    const again = await manager.bootstrap("mock");
+    assert.ok(again.output.includes("dsh already installed"), again.output);
+  } finally {
+    await teardown([manager], env);
+  }
+});
+
+test("bootstrap surfaces the failure when Node is missing (no sudo path)", async () => {
+  const env = setup();
+  process.env.DSH_MOCK_NO_NODE = "1";
+  const manager = makeManager(env.home);
+  try {
+    await assert.rejects(() => manager.bootstrap("mock"), (error) =>
+      error.code === "E_BOOTSTRAP" && error.message.includes("node >= 22.19"));
+  } finally {
+    delete process.env.DSH_MOCK_NO_NODE;
+    await teardown([manager], env);
+  }
+});

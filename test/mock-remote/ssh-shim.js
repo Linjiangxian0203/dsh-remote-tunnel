@@ -221,13 +221,20 @@ async function runStage(state, tokens, stdinText) {
     return result;
   }
   const [cmd, ...args] = tokens;
+  // Real Linux executes absolute paths (/usr/bin/node, ~/.npm-global/bin/dsh);
+  // dispatch on the base name so the same mock handles both spellings.
+  const base = cmd.includes("/") ? cmd.split("/").pop() : cmd;
   const out = (stdout = "", code = 0, stderr = "") => ({ code, stdout, stderr });
 
-  switch (cmd) {
+  switch (base) {
     case "true": return out();
     case "echo": return out(args.join(" ") + "\n");
     case "printf": {
-      if (args.some((a) => a.includes("$HOME"))) return out(`/home/${state.user}\n`);
+      const homeArg = args.find((a) => a.includes("$HOME"));
+      if (homeArg !== undefined) {
+        const suffix = homeArg.replace(/^\$HOME\/?/, "");
+        return out(`/home/${state.user}${suffix.length > 0 ? "/" + suffix : ""}\n`);
+      }
       return out(args.join(" "));
     }
     case "id": return args[0] === "-un" ? out(state.user + "\n") : out(`uid=1000(${state.user})\n`);
@@ -248,7 +255,13 @@ async function runStage(state, tokens, stdinText) {
       const v = args.indexOf("-v");
       const name = v === -1 ? undefined : args[v + 1];
       if (name === "node" && process.env.DSH_MOCK_NO_NODE === undefined) return out("/usr/bin/node\n");
-      if (name === "dsh" && process.env.DSH_MOCK_NO_DSH === undefined) return out(`/home/${state.user}/.npm-global/bin/dsh\n`);
+      if (name === "dsh" && process.env.DSH_MOCK_NO_DSH === undefined) {
+        // Per-account presence: a "dsh-absent/<user>" marker simulates an
+        // account that has never run bootstrap; the bootstrap handler removes
+        // it (and writes the fake dsh file), so later probes find it.
+        if (existsSync(fsPath("dsh-absent", state.user))) return out("", 1);
+        return out(`/home/${state.user}/.npm-global/bin/dsh\n`);
+      }
       if (name === "sudo") return out("/usr/bin/sudo\n");
       return out("", 1);
     }
@@ -295,6 +308,7 @@ async function runStage(state, tokens, stdinText) {
     case "dsh":
       if (args[0] === "--version") {
         if (process.env.DSH_MOCK_NO_DSH !== undefined) return out("", 127, "dsh: command not found");
+        if (existsSync(fsPath("dsh-absent", state.user))) return out("", 127, "dsh: command not found");
         return out("0.1.0-rc.6\n");
       }
       return out("", 1, "unsupported dsh invocation");
@@ -309,6 +323,7 @@ async function runStage(state, tokens, stdinText) {
       return runStage(state, rest, stdinText);
     }
     case "env": {
+      if (args.includes("DSHRT_UPGRADE=1")) state.upgrade = true;
       const rest = args.filter((a) => !a.includes("="));
       return runStage(state, rest, stdinText);
     }
@@ -331,6 +346,7 @@ async function runStage(state, tokens, stdinText) {
         const script = stdinText ?? "";
         if (script.includes("NODE_PROG=")) return runAllocate(state, params, script);
         if (script.includes("TMP=$(mktemp)")) return runUpdate(state, params, script);
+        if (script.includes("dsh-remote-tunnel bootstrap")) return runBootstrap(state);
         return out("", 1, "unrecognized remote script");
       }
       return out("", 1, "unsupported sh invocation");
@@ -455,6 +471,7 @@ async function runStage(state, tokens, stdinText) {
       const underEtc = args[1] !== undefined && args[1].startsWith("/etc/");
       const etcWritable = underEtc && process.env.DSH_MOCK_SHARED_WRITABLE !== undefined;
       if (flag === "-f") ok = existsSync(path);
+      else if (flag === "-x") ok = existsSync(path);
       else if (flag === "-r") ok = (() => { try { readFileSync(path); return true; } catch { return false; } })();
       else if (flag === "-w") ok = underEtc
         ? etcWritable
@@ -496,6 +513,50 @@ async function withLock(lockPath, action) {
 }
 
 // ---- the plugin's remote protocol scripts ----------------------------------
+
+/** Simulate scripts/bootstrap-remote.sh streamed over `sh -s`. */
+function runBootstrap(state) {
+  const user = state.user;
+  const homeDir = fsPath("home", user);
+  const npmBin = join(homeDir, ".npm-global", "bin");
+  const dshFile = join(npmBin, "dsh");
+  const absent = existsSync(fsPath("dsh-absent", user));
+  const upgrade = state.upgrade === true;
+  let text = "== dsh-remote-tunnel bootstrap ==\n";
+  text += `account: ${user} home=/home/${user}\n`;
+  if (process.env.DSH_MOCK_NO_NODE !== undefined) {
+    return { code: 1, stdout: text, stderr: "node >= 22.19 is required but not found. Install it first, e.g.:\n  nvm install 22" };
+  }
+  text += `node: ${process.env.DSH_MOCK_NODE_VERSION ?? "v22.23.2"}\n`;
+  if (upgrade) {
+    text += `upgrading @deepseek-ai/dsh to the latest version in ${join(homeDir, ".npm-global")} ...\n`;
+  } else if (!absent) {
+    text += "dsh already installed: 0.1.0-rc.6\n";
+  } else {
+    text += `installing @deepseek-ai/dsh into ${join(homeDir, ".npm-global")} ...\n`;
+  }
+  if (upgrade || absent) {
+    mkdirSync(npmBin, { recursive: true });
+    writeFileSync(dshFile, "#!/bin/sh\necho mock dsh\n", "utf8");
+    try { unlinkSync(fsPath("dsh-absent", user)); } catch { /* best effort */ }
+    text += "dsh installed: 0.1.0-rc.6\n";
+  }
+  text += `dsh: ${dshFile}\n`;
+  const rc = join(homeDir, ".bashrc");
+  if (!existsSync(rc) || !readFileSync(rc, "utf8").includes("npm-global/bin")) {
+    mkdirSync(homeDir, { recursive: true });
+    appendFileSync(rc, "\n# dsh-remote-tunnel: expose npm global bin\n", "utf8");
+    text += `PATH: added ~/.npm-global/bin to ${rc}\n`;
+  }
+  mkdirSync(join(homeDir, ".dsh"), { recursive: true });
+  setLinger(user, "yes");
+  text += `linger enabled for ${user}\n`;
+  if (!existsSync(mockPath("/etc/dsh-ports.tsv"))) {
+    text += "NOTE: shared registry /etc/dsh-ports.tsv does not exist.\n";
+  }
+  text += "\n== bootstrap done ==\n";
+  return { code: 0, stdout: text, stderr: "" };
+}
 
 async function runAllocate(state, params, script) {
   const [regRaw, lo, hi, user, ws, src, now, exc] = params;

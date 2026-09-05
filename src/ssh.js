@@ -134,10 +134,17 @@ export async function remoteFacts(hostDef, cfg) {
     const fallback = await execRemote(hostDef, "printf '%s' \"$HOME\"", { cfg, timeoutMs: 20000 });
     homeDir = fallback.stdout.trim();
   }
+  // per-account npm-global installs may be invisible to the ssh channel's PATH
+  // (rc files differ per account); probe the standard location as a fallback.
+  let dshPath = dsh.stdout.trim() || null;
+  if (dshPath === null) {
+    const alt = await execRemote(hostDef, 'test -x "$HOME/.npm-global/bin/dsh" && printf "%s\\n" "$HOME/.npm-global/bin/dsh" || true', { cfg, timeoutMs: 20000 });
+    dshPath = alt.stdout.trim() || null;
+  }
   return {
     user,
     home: homeDir,
     nodePath: node.stdout.trim() || null,
-    dshPath: dsh.stdout.trim() || null
+    dshPath
   };
 }
