@@ -29,6 +29,10 @@ dsh --profile remote hosts add lab --host 192.0.2.10 --user alice --workspace /h
 # 3. 第一次先体检,缺什么它逐项告诉你(密钥/Node/dsh/登记表/systemd)
 dsh --profile remote check lab
 
+# 3.5 体检说 Node/dsh 缺失?按你登录的账号一键补齐(幂等;师兄师姐各自跑一次)
+dsh --profile remote bootstrap lab
+#     --upgrade 则强制把远程 dsh 更新到最新版
+
 # 4. 起隧道,浏览器自动打开服务器上的 dsh web
 dsh --profile remote up lab --open
 
@@ -36,15 +40,15 @@ dsh --profile remote up lab --open
 dsh --profile remote down lab
 ```
 
-远程服务器需要:Node ≥ 22.19、dsh、systemd、免密钥 ssh 登录;一条命令初始化:
-`ssh <host> 'sh -s' < scripts/bootstrap-remote.sh`。其余参数在 `$DSH_HOME/remote-tunnel/config.yaml`,不改就能用。
+远程服务器需要:Node ≥ 22.19、dsh、systemd、免密钥 ssh 登录。**每个账号**(包括实验室里其他师兄师姐各自的账号)在自己电脑上跑一次初始化即可,幂等:
+`dsh --profile remote bootstrap lab`(同一脚本亦可手动:`ssh <host> 'sh -s' < scripts/bootstrap-remote.sh`)。其余参数在 `$DSH_HOME/remote-tunnel/config.yaml`,不改就能用。
 
 > `remote` CLI profile 是插件的主界面。装进 **web** profile 才会让插件出现在「设置 → 插件」里、并启用聊天中的 `/remote` 斜杠命令——装完记得重启一次 `dsh web`。
 
 ## 要求
 
 - 本地:Windows/macOS/Linux,自带 OpenSSH 客户端(Windows 10+ 已内置),**Node ≥ 22.19**
-- 远程:Linux,Node ≥ 22.19 + dsh(可用 `scripts/bootstrap-remote.sh` 安装),systemd(用户级即可,无需 root)
+- 远程:Linux,Node ≥ 22.19 + dsh(用 `dsh --profile remote bootstrap <host>` 或 `scripts/bootstrap-remote.sh` 安装,**每个账号各自装一次**),systemd(用户级即可,无需 root)
 - 推荐:远程已配置 SSH 免密钥登录(`ssh <别名>` 直接能进,不弹密码)
 
 ## 安装
@@ -93,6 +97,7 @@ dsh --profile remote down lab            # 停隧道 + 登记表 released + 停�
 ```
 hosts / hosts add <别名> --host H [--port 22] [--user U] [--workspace DIR] / hosts rm <别名>
 check <host>                     就绪诊断(可作 CI 探针,非零退出码 = 有问题)
+bootstrap <host> [--upgrade]     按登录账号补齐远程环境:Node/dsh(~/.npm-global)/~/.dsh/linger(幂等)
 provision <host> [--port N]      只做远程侧:分配端口 + systemd 单元 + 启动 + 登记(不起隧道)
 up <host> [--port N] [--local-port N] [--open] [--heartbeat 秒]
 down [host] [--keep-service]     停隧道 + released + 停单元 + 核实端口释放
@@ -157,6 +162,14 @@ defaults:
 | 成员无 sudo,管理员建了 dshports 组 | `/etc/dsh-ports.tsv`(组 0664,免 sudo) | 用户级单元 + linger |
 | 什么都没配(现状) | 自动降级 `~/.dsh-ports.tsv`(只含本人记录;`check` 会提示找管理员) | 用户级单元 + linger |
 
+**每个账号各自准备好自己的环境**(一台服务器 N 个用户 = 各自跑一次,幂等):
+
+```powershell
+dsh --profile remote bootstrap <host>     # 在自己电脑上,以自己账号 ssh 登录后执行
+```
+
+这一步把 Node/`dsh`(装进**该账号自己的** `~/.npm-global`)/`~/.dsh`/linger 全部补齐——它不碰别的账号的任何东西,会话历史也按账号彼此独立。
+
 管理员一次性初始化共享登记表(二选一):
 
 ```bash
@@ -178,9 +191,16 @@ sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv.lock
 
 两个用户各自 `up` → 自动分到不同远程端口;`audit` 能看出谁占哪个端口、有无 stale/冲突。
 
-## 远程初始化(可选)
+## 远程账号初始化(`bootstrap`,按登录账号)
 
-`scripts/bootstrap-remote.sh` 在服务器上装 Node(缺失时)/ 装 dsh(到 `~/.npm-global`)/ 建 `~/.dsh` / 开 linger:
+`dsh --profile remote bootstrap <host>` 为 **ssh 别名登录的那个账号**补齐环境:Node ≥ 22.19(缺失时尽量装)、dsh(装进该账号 `~/.npm-global`)、`~/.dsh`、systemd linger、npm-global 的 PATH 条目——幂等,新账号跑一次即可。`--upgrade` 则会强制把 dsh 更新到最新版。
+
+```powershell
+dsh --profile remote bootstrap lab              # 准备好当前账号
+dsh --profile remote bootstrap lab --upgrade    # 更新远程 dsh 到最新版
+```
+
+同一脚本也随包提供,可手动执行(和插件行为完全一致):
 
 ```bash
 ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
@@ -190,6 +210,7 @@ ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
 
 | 症状 | 原因与处理 |
 |---|---|
+| `dsh not found` / `node not found`(check 或 up 报错) | 该 **ssh 登录账号**还没装 Node/dsh——插件为每个账号分别工作。`dsh --profile remote bootstrap <host>` 按当前账号补齐(幂等,`--upgrade` 可更新);已装但 ssh 通道 PATH 看不到时,插件也会自动探测 `~/.npm-global/bin/dsh`。 |
 | `Error: listen EADDRINUSE ... 127.0.0.1:3080` | 有人(或你上一个实例)占了该端口。本插件分配前双重检查,`up` 时若仍发生(TOCTOU)会自动顺延;手工起 dsh 才会看到这个报错。 |
 | `Could not resolve hostname <别名>` | 别名不在 `~/.ssh/config` 里,且没在插件配置里定义。`hosts add` 或写入 ssh config 后重试。 |
 | `Connection refused` / `remote port forwarding failed` | 远端 dsh web 没起或端口不对。`check <host>` 看「web port listening」;`logs <host>` 看远端日志;`ss -tln \| grep <port>` 在服务器上核实。 |

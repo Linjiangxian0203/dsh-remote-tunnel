@@ -37,15 +37,15 @@ dsh --profile remote up lab --open
 dsh --profile remote down lab
 ```
 
-The remote server needs: Node ≥ 22.19, dsh, systemd, and key-based ssh login. One command initializes it:
-`ssh <host> 'sh -s' < scripts/bootstrap-remote.sh`. Everything else lives in `$DSH_HOME/remote-tunnel/config.yaml` — sensible defaults, no changes needed.
+The remote server needs: Node ≥ 22.19, dsh, systemd, and key-based ssh login. **Every account** (each labmate's own user) prepares its own environment once — idempotent, runs as whoever the ssh alias logs in as:
+`dsh --profile remote bootstrap lab` (same script, manual: `ssh <host> 'sh -s' < scripts/bootstrap-remote.sh`). Everything else lives in `$DSH_HOME/remote-tunnel/config.yaml` — sensible defaults, no changes needed.
 
 > The `remote` CLI profile is the main interface. Installing into the **web** profile is what makes the plugin appear under **Settings → Plugins** and enables the `/remote` slash commands in chat — restart `dsh web` once after adding it there.
 
 ## Requirements
 
 - Local: Windows/macOS/Linux with the built-in OpenSSH client (Windows 10+ ships it), **Node ≥ 22.19**
-- Remote: Linux, Node ≥ 22.19 + dsh (installable via `scripts/bootstrap-remote.sh`), systemd (user-level is enough — no root needed)
+- Remote: Linux, Node ≥ 22.19 + dsh (installable per account via `dsh --profile remote bootstrap <host>` or `scripts/bootstrap-remote.sh` — each user runs it once for their own account), systemd (user-level is enough — no root needed)
 - Recommended: passwordless ssh key login (`ssh <alias>` connects without prompts)
 
 ## Install (development)
@@ -73,6 +73,11 @@ dsh --profile remote hosts add lab --host 192.0.2.10 --user alice --workspace /h
 # Readiness diagnostics: keys / Node / dsh / registry / systemd, item by item
 dsh --profile remote check lab
 
+# check says Node/dsh are missing? Install them for the account you log in as
+# (idempotent; each labmate runs it once for their own user)
+dsh --profile remote bootstrap lab
+#     --upgrade forces dsh to the latest version
+
 # One command: allocate remote port → register → write systemd unit → start
 # remote dsh web → open the local tunnel
 dsh --profile remote up lab --open
@@ -96,6 +101,7 @@ The local URL opens the dsh web **on the server**: chat and read/write server fi
 ```
 hosts / hosts add <alias> --host H [--port 22] [--user U] [--workspace DIR] / hosts rm <alias>
 check <host>                     readiness diagnostics (usable as a CI probe: nonzero exit = broken)
+bootstrap <host> [--upgrade]     prepare the ssh account: Node/dsh (~/.npm-global)/~/.dsh/linger (idempotent)
 provision <host> [--port N]      remote side only: allocate + systemd unit + start + register (no tunnel)
 up <host> [--port N] [--local-port N] [--open] [--heartbeat seconds]
 down [host] [--keep-service]     stop tunnel + released + stop unit + verify port freed
@@ -160,6 +166,14 @@ defaults:
 | No sudo, admin created a dshports group | `/etc/dsh-ports.tsv` (group 0664, no sudo) | user unit + linger |
 | Nothing configured (default) | falls back to `~/.dsh-ports.tsv` (own rows only; `check` points at the admin setup) | user unit + linger |
 
+**Each account prepares its own environment** (N users on one server = N idempotent runs):
+
+```powershell
+dsh --profile remote bootstrap <host>     # from each user's own machine
+```
+
+This installs Node / dsh (into **that account's own** `~/.npm-global`) / `~/.dsh` / linger without touching any other account — session history is per-account too.
+
 One-time admin setup for the shared registry (either):
 
 ```bash
@@ -183,9 +197,16 @@ the directory nor changing the file's owner/group.
 
 Each user runs `up` independently and gets a different remote port; `audit` shows who holds which port and flags stale/conflicting rows.
 
-## Remote bootstrap (optional)
+## Remote bootstrap (per account)
 
-`scripts/bootstrap-remote.sh` installs Node (when missing) / dsh (into `~/.npm-global`) / creates `~/.dsh` / enables linger:
+`dsh --profile remote bootstrap <host>` prepares **the account the ssh alias logs in as**: Node ≥ 22.19 (when installable), dsh into that account's `~/.npm-global`, `~/.dsh`, systemd lingering and the npm-global PATH entries — idempotent, so each labmate runs it once for their own user. `--upgrade` forces dsh to the latest version.
+
+```powershell
+dsh --profile remote bootstrap lab              # prepare the current account
+dsh --profile remote bootstrap lab --upgrade    # update remote dsh to the latest
+```
+
+The same script ships as `scripts/bootstrap-remote.sh` for manual use (identical behavior):
 
 ```bash
 ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
@@ -195,6 +216,7 @@ ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
 
 | Symptom | Cause and fix |
 |---|---|
+| `dsh not found` / `node not found` (check or up) | The ssh account has no Node/dsh yet — the plugin works per account. `dsh --profile remote bootstrap <host>` installs them for whoever you log in as (idempotent; `--upgrade` refreshes). Even when the ssh channel's PATH misses `~/.npm-global`, the plugin now probes that path directly. |
 | `Error: listen EADDRINUSE ... 127.0.0.1:3080` | Someone (or your previous instance) holds the port. This plugin double-checks before allocation and retries the next port automatically on a startup race; you only see this when starting dsh by hand. |
 | `Could not resolve hostname <alias>` | The alias is neither in `~/.ssh/config` nor in the plugin config. `hosts add` or add it to ssh config. |
 | `Connection refused` / `remote port forwarding failed` | The remote dsh web is down or on the wrong port. `check <host>` → "web port listening"; `logs <host>` for the remote journal; `ss -tln \| grep <port>` on the server. |
