@@ -21,6 +21,10 @@ dsh plugin --profile remote add dsh-remote-tunnel
 #    also install into the web profile, then restart dsh web:
 dsh plugin --profile web add dsh-remote-tunnel
 
+# ⚠️ Sharing one server with others? Do the one-time registration first (needs root —
+#    see "Sharing one server" below). Without it the plugin falls back to a private
+#    per-account registry and `audit` only shows your own ports.
+
 # 2. Confirm your server is visible (Host aliases from ~/.ssh/config are auto-discovered)
 dsh --profile remote hosts
 #    not there? define one:
@@ -158,13 +162,46 @@ defaults:
     extraArgs: []
 ```
 
-## Sharing one server (multi-user)
+## Sharing one server (multi-user — do this first on a lab server)
+
+When several people use one server, **have root do the one-time registration first**. Without it the
+plugin silently falls back to a per-account registry: allocation still avoids real collisions (the
+bind probe and PID attribution keep everyone on their own service), but `audit` can only see your own
+rows — not who holds which port.
+
+**One-time registration (needs root; never repeated)** — the shared registry plus a shared group:
+
+```bash
+sudo groupadd -f dshports
+sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv
+sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv.lock
+sudo usermod -aG dshports <user1> <user2> ...    # every account that will use the plugin
+```
+
+Both files are required up front: they sit in a root-only directory, so a
+member cannot create the lock themselves and every operation takes it.
+Only those two files carry the group-write bit (`0664`) — the directory stays
+root-only, which is fine: each registry update stages through a per-user
+`mktemp` file and rewrites the registry in place, never touching the directory
+nor changing the file's owner/group.
+
+**Each member**: ① re-login over SSH once so the group applies; ② `dsh --profile remote bootstrap <host>`;
+③ `dsh --profile remote check <host>` should report `registry: /etc/dsh-ports.tsv (shared-direct)` —
+**no configuration change needed**, the plugin switches from its private registry automatically.
+
+From then on every `up` allocates under a server-side `flock` and writes the same table: remote ports
+are always distinct, and `audit` shows who holds which port and whether anything is stale. Clean up
+ownerless rows with `dsh --profile remote audit <host> --clean-stale`.
 
 | Server setup | Registry | Supervision |
 |---|---|---|
-| Members have passwordless sudo | `/etc/dsh-ports.tsv` (sudo writes) | system unit, one port per user |
-| No sudo, admin created a dshports group | `/etc/dsh-ports.tsv` (group 0664, no sudo) | user unit + linger |
-| Nothing configured (default) | falls back to `~/.dsh-ports.tsv` (own rows only; `check` points at the admin setup) | user unit + linger |
+| Admin created `dshports` as above (recommended) | `/etc/dsh-ports.tsv` (group 0664, no sudo) | user unit + linger |
+| Every member has passwordless sudo | `/etc/dsh-ports.tsv` (sudo writes, 0644) | system unit, one port per user |
+| Nothing configured | falls back to `~/.dsh-ports.tsv` (own rows only; `check` points at the admin setup) | user unit + linger |
+
+> The shared registry is **world-readable** (0644/0664) and holds only port, account, workspace,
+> source, timestamps and status — **no passwords, keys or tokens**. Writes are serialized by `flock`,
+> so accounts outside the group cannot tamper with it.
 
 **Each account prepares its own environment** (N users on one server = N idempotent runs):
 
@@ -173,27 +210,6 @@ dsh --profile remote bootstrap <host>     # from each user's own machine
 ```
 
 This installs Node / dsh (into **that account's own** `~/.npm-global`) / `~/.dsh` / linger without touching any other account — session history is per-account too.
-
-One-time admin setup for the shared registry (either):
-
-```bash
-# A. every member has passwordless sudo
-sudo install -m 0644 -o root -g root /dev/null /etc/dsh-ports.tsv
-sudo install -m 0644 -o root -g root /dev/null /etc/dsh-ports.tsv.lock
-
-# B. members have no sudo: shared group writes
-sudo groupadd dshports && sudo usermod -aG dshports alice bob ...
-sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv
-sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv.lock
-# each member's plugin config: registry.sudo: never
-```
-
-Both files are required up front: they sit in a root-only directory, so a
-member cannot create the lock themselves and every operation takes it.
-In setup B only those two files carry the group-write bit (`0664`) — the
-directory stays root-only, which is fine: each registry update stages through
-a per-user `mktemp` file and rewrites the registry in place, never touching
-the directory nor changing the file's owner/group.
 
 Each user runs `up` independently and gets a different remote port; `audit` shows who holds which port and flags stale/conflicting rows.
 
