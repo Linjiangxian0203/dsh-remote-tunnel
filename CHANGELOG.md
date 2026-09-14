@@ -6,6 +6,20 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+## [0.1.12]
+
+### Fixed
+- The local-tunnel verification introduced in 0.1.11 required HTTP **200**
+  from the launch-token URL, but dsh answers a valid token with **303** (it
+  mints the browser cookie and redirects to the clean URL) or 200 when the
+  cookie is already present. Requiring exactly 200 rejected every valid local
+  port: `up` walked all five candidates and failed with
+  `local port N did not serve our dsh (HTTP 303)`. Any 2xx/3xx now counts as
+  "this tunnel reaches our dsh"; only 401/403 (another instance rejecting our
+  token) disqualifies a candidate. Verified against dsh 0.1.5-rc.2 on a real
+  server: the token URL answers 303 through the tunnel and the browser lands on
+  the UI (200, ~27 KB).
+
 ## [0.1.11]
 
 ### Fixed
