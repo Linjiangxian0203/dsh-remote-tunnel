@@ -21,6 +21,9 @@ dsh plugin --profile remote add dsh-remote-tunnel
 #    再装进 web profile,并重启 dsh web:
 dsh plugin --profile web add dsh-remote-tunnel
 
+# ⚠️ 多人共用同一台服务器?先做一次性注册(需要 root,见下面「多用户共享服务器」一节):
+#    不注册也能用,但会退化成每人一份私有登记表 —— audit 只看得到自己占的端口
+
 # 2. 确认你的服务器能被识别(~/.ssh/config 里的 Host 别名自动发现)
 dsh --profile remote hosts
 #    没有?手动定义一台:
@@ -154,13 +157,39 @@ defaults:
     extraArgs: []
 ```
 
-## 多用户共享服务器
+## 多用户共享服务器(实验室场景:先做这一步)
+
+多人用同一台服务器时,**建议第一次先用 root 做一次性注册**——否则插件会自动降级为"每人一份私有登记表",
+端口分配只能靠真实占用探测避让(仍然不会连错、不会永久撞车,但 `audit` 看不到别人占了哪些端口)。
+
+**注册一次(需要 root,之后永不再做)**——建共享登记表 + 共享组:
+
+```bash
+sudo groupadd -f dshports
+sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv
+sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv.lock
+sudo usermod -aG dshports <用户名1> <用户名2> ...    # 需要用到插件的每个账号
+```
+
+两个文件都必须**提前建好**:它们位于仅 root 可写的目录里,成员自己无法创建锁文件,而所有登记操作都要先拿这把锁。
+只有这两个文件带组写权限(`0664`),所在目录保持仅 root 即可——更新登记表时插件用用户级 `mktemp` 中转、**原地改写**,
+既不触碰目录,也不改变文件的属主/组。
+
+**每个成员**:① 重新 SSH 登录一次让组生效;② 首次准备环境 `dsh --profile remote bootstrap <host>`;
+③ `dsh --profile remote check <host>` 应显示 `registry: /etc/dsh-ports.tsv (shared-direct)`——**无需改任何配置**,
+插件会自动从私有登记表切到共享表。
+
+之后每个人 `up` 的分配都在服务器上被 `flock` 串行化并写入同一张表:分到的远程端口必定互不相同,
+`audit` 能直接看出"谁占了哪个端口、有无 stale/冲突"。无主行定期清理:`dsh --profile remote audit <host> --clean-stale`。
 
 | 服务器环境 | 登记表 | 服务守护 |
 |---|---|---|
-| 成员有密码 sudo | `/etc/dsh-ports.tsv`(sudo 写入) | 系统级单元,一人一个端口 |
-| 成员无 sudo,管理员建了 dshports 组 | `/etc/dsh-ports.tsv`(组 0664,免 sudo) | 用户级单元 + linger |
-| 什么都没配(现状) | 自动降级 `~/.dsh-ports.tsv`(只含本人记录;`check` 会提示找管理员) | 用户级单元 + linger |
+| 管理员按上面建了 `dshports` 组(推荐) | `/etc/dsh-ports.tsv`(组 0664,免 sudo) | 用户级单元 + linger |
+| 成员都有 passwordless sudo | `/etc/dsh-ports.tsv`(sudo 写入,0644) | 系统级单元,一人一个端口 |
+| 什么都没配 | 自动降级 `~/.dsh-ports.tsv`(只含本人记录;`check` 会提示找管理员) | 用户级单元 + linger |
+
+> 共享登记表**全员可读**(0644/0664),里面只有端口、账号、工作区、来源、时间戳和状态——**不含任何密码、密钥或 token**;
+> 写入由 `flock` 串行化,非本组成员无法篡改。
 
 **每个账号各自准备好自己的环境**(一台服务器 N 个用户 = 各自跑一次,幂等):
 
@@ -169,25 +198,6 @@ dsh --profile remote bootstrap <host>     # 在自己电脑上,以自己账号 s
 ```
 
 这一步把 Node/`dsh`(装进**该账号自己的** `~/.npm-global`)/`~/.dsh`/linger 全部补齐——它不碰别的账号的任何东西,会话历史也按账号彼此独立。
-
-管理员一次性初始化共享登记表(二选一):
-
-```bash
-# A. 成员都有 passwordless sudo
-sudo install -m 0644 -o root -g root /dev/null /etc/dsh-ports.tsv
-sudo install -m 0644 -o root -g root /dev/null /etc/dsh-ports.tsv.lock
-
-# B. 成员无 sudo:共享组写入
-sudo groupadd dshports && sudo usermod -aG dshports alice bob ...
-sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv
-sudo install -m 0664 -o root -g dshports /dev/null /etc/dsh-ports.tsv.lock
-# 每个成员的插件配置: registry.sudo: never
-```
-
-两个文件都要提前建好:它们位于仅 root 可写的目录里,成员自己无法创建锁文件,
-而所有登记操作都要先拿这把锁。方案 B 下只有这两个文件带组写权限(`0664`),
-所在目录保持仅 root 即可——每次登记表更新都经由用户级 `mktemp` 中转、原地
-改写,既不触碰目录,也不改变文件的属主/组。
 
 两个用户各自 `up` → 自动分到不同远程端口;`audit` 能看出谁占哪个端口、有无 stale/冲突。
 
