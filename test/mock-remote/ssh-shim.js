@@ -372,8 +372,20 @@ async function runStage(state, tokens, stdinText) {
     }
     case "grep": {
       const text = stdinText ?? "";
-      let pattern = args.includes("-E") ? args[args.indexOf("-E") + 1] : args[0];
-      if (pattern === undefined) return out("", 2);
+      // Real GNU grep option parsing: `--` ends options, and a pattern that
+      // starts with `-` without that separator is REJECTED as an option. This
+      // caught a real bug where `grep -E '--port [0-9]+'` silently failed on
+      // servers (disabling port reuse) while a lenient mock hid it.
+      const separator = args.indexOf("--");
+      const opts = separator === -1 ? args : args.slice(0, separator);
+      const operands = separator === -1 ? [] : args.slice(separator + 1);
+      let pattern = separator !== -1
+        ? operands[0]
+        : (opts.includes("-E") ? opts[opts.indexOf("-E") + 1] : opts.find((a) => !a.startsWith("-")));
+      if (pattern === undefined) return out("", 2, "grep: missing pattern");
+      if (separator === -1 && pattern.startsWith("-")) {
+        return out("", 2, `grep: unrecognized option '${pattern}'`);
+      }
       const re = new RegExp(pattern.replace(/^\^|\$$/g, ""));
       let lines = text.split(/\r?\n/).filter((l) => re.test(l));
       if (args.includes("-m1")) lines = lines.slice(0, 1);
@@ -411,6 +423,7 @@ async function runStage(state, tokens, stdinText) {
       if (verb === "is-active") return entry.active ? out("active\n") : out("inactive\n", 3);
       if (verb === "is-enabled") return entry.enabled ? out("enabled\n") : out("disabled\n", 1);
       if (verb === "enable") { svc[key] = { ...entry, enabled: true }; saveServices(svc); return out(); }
+      if (verb === "disable") { svc[key] = { ...entry, enabled: false }; saveServices(svc); return out(); }
       if (verb === "restart") {
         if (!existsSync(unitFileFor(scope, unit, state.user))) return out("", 5, `Unit ${unit}.service not found.`);
         const parsed = parseUnit(readFileSync(unitFileFor(scope, unit, state.user), "utf8"));
@@ -605,7 +618,11 @@ function runUpdate(state, params, script) {
     if (line.startsWith("#")) return line;
     const fields = line.split("\t");
     const hit = fields.length >= 7 ? wanted.get(`${fields[0]}\t${fields[1]}`) : undefined;
-    if (hit !== undefined) fields[hit.col === "7" ? 6 : 5] = hit.val;
+    // mirrors the real awk: status (col 7) rewrites any matching row,
+    // heartbeats (col 6) only touch in-use rows
+    if (hit !== undefined && (hit.col === "7" || fields[6] === "in-use")) {
+      fields[hit.col === "7" ? 6 : 5] = hit.val;
+    }
     return fields.join("\t");
   });
   const tmp = `${reg}.tmp`;

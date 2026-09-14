@@ -19,6 +19,16 @@ import { Tunnel } from "./local/tunnel.js";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * The effective registry row for a port. The registry is append-ordered, so
+ * the NEWEST row for a port is the one that describes its current state;
+ * older rows are history (released by an earlier `down`, or superseded).
+ */
+function effectiveRow(rows, port) {
+  const matching = rows.filter((r) => r.port === port);
+  return matching.length > 0 ? matching[matching.length - 1] : undefined;
+}
+
+/**
  * TunnelManager — the whole plugin domain: host discovery, remote allocation
  * and registry, systemd provisioning (system or --user unit), local tunnel
  * supervision, heartbeats, audit and lifecycle. CLI commands and /remote
@@ -153,8 +163,8 @@ export class TunnelManager {
       const existing = await scope.port(hostDef, this.cfg, ctx);
       if (existing !== null) {
         const rows = await remoteReadRegistry(hostDef, this.cfg, ctx, registry);
-        const row = rows.find((r) => r.port === Number(existing) && r.user === user && r.status === "in-use");
-        if (row !== undefined) {
+        const row = effectiveRow(rows, Number(existing));
+        if (row !== undefined && row.user === user && row.status === "in-use") {
           port = Number(existing);
           reused = true;
           this.out(`reusing registered remote port ${port} (${scope.unit} already runs on it)`);
@@ -328,26 +338,6 @@ export class TunnelManager {
       );
     }
 
-    const now = new Date().toISOString();
-    writeState(this.home, alias, {
-      alias,
-      host: remote.hostDef.host,
-      user: remote.user,
-      workspace: remote.workspace,
-      unit: remote.unit,
-      unitScope: remote.unitScope,
-      remotePort: remote.port,
-      localPort,
-      url: `http://127.0.0.1:${localPort}`,
-      sshPid: tunnel.child?.pid ?? null,
-      startedAt: now,
-      lastHeartbeatAt: now
-    });
-    stateWritten = true;
-    this.startHeartbeat(alias, { port: remote.port, user: remote.user });
-
-    this.event({ kind: "up", alias, url: `http://127.0.0.1:${localPort}`, remotePort: remote.port, localPort });
-
     // dsh web (>= 0.1.2-rc) gates its UI behind a one-time token carried in
     // the launch URL it prints at startup (into the unit journal). Surface an
     // equivalent URL pointing at the local tunnel port so `up` output opens
@@ -378,6 +368,27 @@ export class TunnelManager {
     } catch {
       // best effort: the plain URL plus the log hint below still work
     }
+
+    const now = new Date().toISOString();
+    writeState(this.home, alias, {
+      alias,
+      host: remote.hostDef.host,
+      user: remote.user,
+      workspace: remote.workspace,
+      unit: remote.unit,
+      unitScope: remote.unitScope,
+      remotePort: remote.port,
+      localPort,
+      url: `http://127.0.0.1:${localPort}`,
+      authUrl,
+      sshPid: tunnel.child?.pid ?? null,
+      startedAt: now,
+      lastHeartbeatAt: now
+    });
+    stateWritten = true;
+    this.startHeartbeat(alias, { port: remote.port, user: remote.user });
+
+    this.event({ kind: "up", alias, url: `http://127.0.0.1:${localPort}`, remotePort: remote.port, localPort });
 
     return {
       alias,
@@ -410,7 +421,7 @@ export class TunnelManager {
     // this file to stop reconnecting.
     removeState(this.home, alias);
 
-    const result = { alias, released: false, serviceStopped: false, portFree: false, warnings: [] };
+    const result = { alias, released: false, serviceStopped: false, serviceDisabled: false, portFree: false, warnings: [] };
     if (state !== undefined) {
       try {
         const targets = await this.resolveTargets(alias);
@@ -422,6 +433,10 @@ export class TunnelManager {
         if (opts.keepService !== true) {
           result.serviceStopped = await targets.scope.stop(targets.hostDef, this.cfg, ctx).then((r) => r.code === 0, () => false);
           if (!result.serviceStopped) result.warnings.push("remote unit did not stop");
+          // Disable as well: an enabled unit comes back after a server reboot,
+          // which would re-occupy a port the registry already marked released.
+          result.serviceDisabled = await targets.scope.disable(targets.hostDef, this.cfg, ctx).then((r) => r.code === 0, () => false);
+          if (!result.serviceDisabled) result.warnings.push("remote unit could not be disabled (it may restart after a reboot)");
         }
         const listening = await remoteOccupancy(targets.hostDef, this.cfg, ctx, [state.remotePort]);
         result.portFree = !listening.includes(state.remotePort);
@@ -454,7 +469,7 @@ export class TunnelManager {
       remote.unitActive = await targets.scope.activeState(targets.hostDef, this.cfg, ctx);
       remote.unitScope = targets.scope.type;
       const rows = await remoteReadRegistry(targets.hostDef, this.cfg, ctx, targets.registry);
-      remote.registryRow = rows.find((r) => r.port === state.remotePort) ?? null;
+      remote.registryRow = effectiveRow(rows, state.remotePort) ?? null;
       const listening = await remoteOccupancy(targets.hostDef, this.cfg, ctx, [state.remotePort]);
       remote.portListening = listening.includes(state.remotePort);
     } catch (error) {
@@ -489,7 +504,7 @@ export class TunnelManager {
 
     const changes = [];
     if (opts.release !== undefined) {
-      const row = rows.find((r) => r.port === opts.release);
+      const row = effectiveRow(rows, opts.release);
       if (row === undefined) throw new TunnelError(`port ${opts.release} has no registry row`, { code: "E_AUDIT" });
       await remoteUpdateRegistry(hostDef, this.cfg, ctx, registry, {
         port: row.port, user: row.user, field: "status", value: "released"
@@ -647,7 +662,9 @@ export class TunnelManager {
   open(alias, urlOverride) {
     const state = readState(this.home, alias);
     if (state === undefined) throw new TunnelError(`no tunnel state for "${alias}"`, { code: "E_NOT_UP" });
-    const url = urlOverride ?? state.url;
+    // dsh >= 0.1.2 requires the one-time token from the launch URL; `up` stores
+    // it so a later `open` invocation reaches the page instead of a 401.
+    const url = urlOverride ?? state.authUrl ?? state.url;
     // Platform-specific browser launcher: Windows uses `cmd start`, macOS uses
     // `open`, everything else uses `xdg-open`.
     const launcher = process.platform === "win32"

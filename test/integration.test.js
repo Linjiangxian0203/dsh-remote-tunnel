@@ -134,7 +134,11 @@ test("up → real HTTP through the tunnel → status → down (happy path)", asy
     const down = await manager.down("mock");
     assert.equal(down.released, true);
     assert.equal(down.serviceStopped, true);
+    assert.equal(down.serviceDisabled, true);
     assert.equal(down.portFree, true);
+    // the unit must not be able to come back after a reboot
+    const afterDown = JSON.parse(readFileSync(join(env.mockRoot, "services.json"), "utf8"));
+    assert.equal(Object.values(afterDown).every((entry) => entry.enabled !== true), true);
     assert.equal(existsSync(join(env.home, "state", "mock.json")), false);
 
     const registryAfter = readFileSync(mockPath(env.mockRoot, result.registryPath), "utf8");
@@ -387,6 +391,10 @@ test("up after a hard kill cleans stale state and reuses the registered remote p
     assert.equal(second.reused, true);
     const { status } = await httpGet(second.url);
     assert.equal(status, 200);
+    // registry is append-ordered: `status` must report the NEWEST row for the
+    // port (an older released row for the same port must not shadow it)
+    const statusInfo = await manager.status("mock");
+    assert.equal(statusInfo.remote.registryRow.status, "in-use");
     await manager.down("mock");
   } finally {
     await teardown([manager], env);

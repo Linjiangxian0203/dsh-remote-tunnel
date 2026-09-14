@@ -116,7 +116,7 @@ config show / config path
 3. **TOCTOU 兜底**:若 dsh 启动时端口被抢(`EADDRINUSE` 出现在单元日志),自动把该端口加入排除集,顺延下一个空闲端口重试(默认最多 5 轮)。
 4. **本地隧道**:`ssh -N -L 127.0.0.1:<本地>:127.0.0.1:<远程> <别名>`,本地端口先检查占用(被占自动顺延,并用 `netstat`+`tasklist` 报出占用者);ssh 进程退出后按退避序列(1s→2s→4s→8s→15s→30s 封顶)自动重连,永不断线(可配 `maxAttempts`)。隧道明确**不传** `ClearAllForwardings`(Windows OpenSSH 会把它连同命令行 `-L` 一起清掉);exec 会话仍会清掉 config 里的转发。
 5. **心跳**:隧道存活期间每 `heartbeatSeconds`(默认 120 秒)在锁内原位刷新登记表 `last_heartbeat`。
-6. **释放**:`down`(或 `up` 的 Ctrl+C)按序:停隧道 → 删除本地状态 → 登记表 `released` → 停远端单元 → 核实端口真的释放。另一个进程里的 `up` 监督器检测到状态文件被删除后自动停止重连,不会「诈尸」。**硬关终端**(不按 Ctrl+C)则远端服务照跑、登记表仍是 in-use——这是真实占用,不是泄漏:下次 `up` 会自动清理残留的本地状态并**复用同一个已登记端口**,不会越攒越多。
+6. **释放**:`down`(或 `up` 的 Ctrl+C)按序:停隧道 → 删除本地状态 → 登记表 `released` → 停远端单元并 **disable**(禁用,避免服务器重启后自己回来占住已释放的端口)→ 核实端口真的释放。`up`/`provision` 会重新 enable;`--keep-service` 则完全不动远端单元。另一个进程里的 `up` 监督器检测到状态文件被删除后自动停止重连,不会「诈尸」。**硬关终端**(不按 Ctrl+C)则远端服务照跑、登记表仍是 in-use——这是真实占用,不是泄漏:下次 `up` 会自动清理残留的本地状态并**复用同一个已登记端口**,不会越攒越多。
 
 ## 配置
 
@@ -222,6 +222,8 @@ ssh <host> 'sh -s' < scripts/bootstrap-remote.sh
 | 打开隧道 URL 只显示 `dsh web authentication required; reopen the URL printed by dsh web.` | dsh web ≥ 0.1.2-rc 用启动时打印的一次性 token URL 鉴权。`up` 现在会打印改写成本地端口的带 token 地址(`auth:` 行)。若已过期(服务重启过),把 `logs <host>` 里的 `dsh web: http://…?token=…` 整行复制到浏览器地址栏。 |
 | 登记表读不到(`/etc/dsh-ports.tsv missing`) | 首次分配时自动创建(需写入权限);无权限时自动降级到 `~/.dsh-ports.tsv`,`check` 会给出管理员初始化命令。 |
 | 每条 ssh 命令都慢 ~N 秒 | 部分服务器上给 ssh 传 `ConnectTimeout` 会让每条连接都等满超时(即使秒连)。默认已不传该参数(`ssh.connectTimeout: 0`);需要时再显式打开。 |
+| `Bad owner or permissions on .../.ssh/config`(所有远程操作全挂) | 你的 `~/.ssh/config` 里被别的工具(如 AtomGit DevEnv、conda 环境)注入了 `Include`,而那个被包含的文件权限过宽(带 `Everyone:(F)`),OpenSSH 直接拒绝加载整份配置。修复:`icacls "<被包含的文件>" /inheritance:r /grant:r "$env:USERDOMAIN\$env:USERNAME:F" /grant:r "NT AUTHORITY\SYSTEM:F"`(目录同样处理)。另一种成因是 `HOME` 被工具改指到别处,使 ssh 读了另一个目录下的 config——`echo $env:HOME` 确认。 |
+| `audit` 显示某些 in-use 行是 `STALE`,端口总被"占用" | 那是会话被杀/硬关终端后没来得及 `down` 留下的历史行(分配时会当作占用,避免撞车)。清理:`dsh --profile remote audit <host> --clean-stale`。 |
 
 ## 开发与测试
 
