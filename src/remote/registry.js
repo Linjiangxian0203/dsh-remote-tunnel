@@ -94,7 +94,7 @@ REG=$1; PORT=$2; USER_=$3; COL=$4; VAL=$5
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
 awk -F '\\t' -v OFS='\\t' -v port="$PORT" -v user="$USER_" -v col="$COL" -v val="$VAL" '
-  { if ($1 == port && $2 == user) { if (col == "7") $7 = val; else $6 = val; } print }
+  { if ($1 == port && $2 == user && (col == "7" || $7 == "in-use")) { if (col == "7") $7 = val; else $6 = val; } print }
 ' "$REG" > "$TMP"
 cat "$TMP" > "$REG"`;
 
@@ -112,7 +112,7 @@ awk -F '\\t' -v OFS='\\t' '
   }
   {
     k = $1 SUBSEP $2
-    if (k in key) { split(key[k], v, SUBSEP); if (v[1] == "7") $7 = v[2]; else $6 = v[2]; }
+    if (k in key) { split(key[k], v, SUBSEP); if (v[1] == "7") $7 = v[2]; else if ($7 == "in-use") $6 = v[2]; }
     print
   }
 ' "$REG" "$@" > "$TMP"

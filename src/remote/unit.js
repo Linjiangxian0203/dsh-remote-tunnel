@@ -105,7 +105,10 @@ export class UnitScope {
 
   /** Current port in the installed unit's ExecStart (or null when absent). */
   async port(hostDef, cfg, ctx) {
-    const result = await execRemote(hostDef, `cat "${this.servicePath}" 2>/dev/null | grep -o -m1 -E '--port [0-9]+' | awk '{print $2}'`, { cfg, timeoutMs: 30000 });
+    // `--` ends grep's option parsing: without it GNU grep treats the pattern
+    // `--port ...` as an option and fails, which silently disabled port reuse
+    // on real servers (the mock's grep was lenient — see ssh-shim.js).
+    const result = await execRemote(hostDef, `cat "${this.servicePath}" 2>/dev/null | grep -o -m1 -E -- '--port [0-9]+' | awk '{print $2}'`, { cfg, timeoutMs: 30000 });
     return result.stdout.trim() || null;
   }
 
@@ -147,6 +150,14 @@ export class UnitScope {
 
   async stop(hostDef, cfg, ctx) {
     return this.run(hostDef, cfg, ctx, this.ctl("stop", [this.unit]), { timeoutMs: 60000 });
+  }
+
+  /**
+   * Disable the unit so a released port cannot come back after a server
+   * reboot. Pairs with stop(); `up`/`provision` enable it again.
+   */
+  async disable(hostDef, cfg, ctx) {
+    return this.run(hostDef, cfg, ctx, this.ctl("disable", [this.unit]), { timeoutMs: 60000 });
   }
 
   async journal(hostDef, cfg, ctx, lines) {

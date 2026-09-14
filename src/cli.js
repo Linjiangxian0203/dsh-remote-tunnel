@@ -228,6 +228,7 @@ Commands:
       reporter.out(`✓ ${target} down`);
       if (result.released) reporter.out("  registry: released");
       if (result.serviceStopped) reporter.out("  service: stopped");
+      if (result.serviceDisabled) reporter.out("  service: disabled (will not restart after a reboot)");
       reporter.out(`  remote port ${result.portFree ? "verified free" : "STILL LISTENING"}`);
       for (const warning of result.warnings) reporter.err(`  warning: ${warning}`);
     }).then(() => exit?.(0), (error) => { printError(error); exit?.(1); });
@@ -258,6 +259,9 @@ Commands:
       const { local, remote } = result;
       reporter.out(`tunnel ${target}`);
       reporter.out(`  url:       ${local.url} ${local.urlResponds ? "(responding)" : "(NOT responding)"}`);
+      if (local.authUrl !== undefined && local.authUrl !== null) {
+        reporter.out(`  auth:      ${local.authUrl}`);
+      }
       reporter.out(`  ssh pid:   ${local.sshPid ?? "-"} ${local.pidAlive ? "(alive)" : "(dead)"}`);
       reporter.out(`  started:   ${local.startedAt}`);
       reporter.out(`  heartbeat: ${local.lastHeartbeatAt ?? "-"}`);

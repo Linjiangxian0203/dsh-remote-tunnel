@@ -6,6 +6,37 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+## [0.1.10]
+
+### Fixed
+- **Port reuse never worked on real servers**: the unit port probe ran
+  `grep -E '--port [0-9]+'`, and GNU grep parses that pattern as an option and
+  fails, so the ExecStart port came back empty and every `up` allocated a fresh
+  port (which is also why the registry grew one row per `up`). The pattern now
+  follows `--`, and the mock's grep reproduces GNU option parsing so this class
+  of bug cannot hide again. `up` reuses the registered port from now on and
+  reports `reusing registered remote port N`.
+- `down` now **disables** the unit as well as stopping it. An enabled unit came
+  back after a server reboot, re-occupying a port the registry had already
+  marked released (the ORPHAN rows an `audit` showed). `up`/`provision` enable
+  it again; `--keep-service` still leaves the unit alone.
+- Registry lookups use the **newest** row for a port. The registry is
+  append-ordered, so an older `released` row for the same port could shadow the
+  live `in-use` row: `status` reported "released" while the tunnel was up, and
+  `audit --release <port>` could target history instead of the effective row.
+- Heartbeats only refresh `in-use` rows, so historical released rows keep the
+  heartbeat they actually had instead of looking freshly alive.
+
+### Added
+- `up` stores the one-time launch URL (`authUrl`) in the local state file, and
+  `open` prefers it — a later `dsh --profile remote open <host>` now reaches the
+  page instead of answering 401 on dsh web ≥ 0.1.2-rc.
+- `status` (CLI and `/remote status`) shows the `auth:` URL when one is known.
+
+### Changed
+- Mock `ssh` gains GNU-style `grep` option parsing and the registry's in-use
+  heartbeat rule, so the tests mirror the server's real behavior.
+
 ## [0.1.9]
 
 ### Added

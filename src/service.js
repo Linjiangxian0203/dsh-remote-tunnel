@@ -65,6 +65,7 @@ export function registerSlashCommands(ctx, home) {
             const lines = [`${alias} down`];
             if (result.released) lines.push("registry: released");
             if (result.serviceStopped) lines.push("service: stopped");
+            if (result.serviceDisabled) lines.push("service: disabled (will not restart after a reboot)");
             lines.push(`remote port ${result.portFree ? "verified free" : "STILL LISTENING"}`);
             return { kind: "success", text: lines.join("\n") };
           }
@@ -73,10 +74,13 @@ export function registerSlashCommands(ctx, home) {
             const { local, remote } = await manager.status(alias);
             const lines = [
               `tunnel ${alias}`,
-              `url: ${local.url} ${local.urlResponds ? "(responding)" : "(NOT responding)"}`,
+              `url: ${local.url} ${local.urlResponds ? "(responding)" : "(NOT responding)"}`
+            ];
+            if (local.authUrl !== undefined && local.authUrl !== null) lines.push(`auth: ${local.authUrl}`);
+            lines.push(
               `ssh pid: ${local.sshPid ?? "-"} ${local.pidAlive ? "(alive)" : "(dead)"}`,
               `remote: ${local.host}:${local.remotePort} (unit ${local.unit})`
-            ];
+            );
             if (remote.error !== undefined) lines.push(`remote unavailable: ${remote.error}`);
             else {
               lines.push(`unit: ${remote.unitActive}`);
