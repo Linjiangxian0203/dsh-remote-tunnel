@@ -6,6 +6,42 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+## [0.1.11]
+
+### Fixed
+- **Multi-user safety: a listening port no longer proves our service is up.**
+  On a shared server without a writable shared registry, two accounts could
+  allocate the SAME port (each registry is private, and both bind probes ran
+  before either dsh bound). The loser's dsh then crash-looped on EADDRINUSE
+  while systemd still reported the start as successful, and the port answered
+  from the WINNER's dsh — so the loser's tunnel pointed at a labmate's web UI,
+  exposing that account's sessions and files. The port is now attributed by
+  PID: the listener's pid must equal our unit's `MainPID`; a port held by
+  another process (or by a socket whose owner cannot be named) is treated as a
+  collision and the plugin moves to the next free port instead.
+- `remoteListeners` returned nothing at all on real servers: the
+  `sh -c "ss -tlnp …"` argument was unquoted, so the remote shell ran a bare
+  `ss` (every socket, no `users:` details) and the parse came back empty.
+  `audit`'s listener/owner columns and its `conflict` verdict were therefore
+  always empty on real hosts; they now report the actual pid and process.
+- `up --port <n>` treats the port as a preference: when another process already
+  holds it, the plugin allocates a free port and says so, instead of failing —
+  or, worse, reporting success against someone else's service.
+
+### Changed
+- A bind-race retry drops a user-forced port instead of retrying the same one.
+- Mock ssh mirrors the real contracts that hid these bugs: `ss` honours
+  `-l/-t` (a bare `ss` yields no LISTEN rows), `systemctl show -p MainPID
+  --value` is implemented, and a mock service that dies on bind leaves its unit
+  inactive while the restart still returns success — as real systemd does.
+
+### Tests
+- New integration test for the lab-server case (two accounts, no shared
+  registry, concurrent `up`): both users must end up serving their own dsh on
+  distinct ports.
+- The happy path now asserts that the port's listener pid equals the unit's
+  `MainPID`, so attribution cannot silently regress.
+
 ## [0.1.10]
 
 ### Fixed

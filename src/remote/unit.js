@@ -122,6 +122,20 @@ export class UnitScope {
     return result.stdout.trim() || "unknown";
   }
 
+  /**
+   * The unit's current MainPID (0 when it is not running). Together with the
+   * listener's pid this answers the only question that matters on a shared
+   * server: is OUR process the one serving this port?
+   */
+  async mainPid(hostDef, cfg, ctx) {
+    const args = this.type === "system"
+      ? ["sudo", "-n", "systemctl", "show", "-p", "MainPID", "--value", this.unit]
+      : ["systemctl", "--user", "show", "-p", "MainPID", "--value", this.unit];
+    const result = await this.run(hostDef, cfg, ctx, args, { timeoutMs: 30000 });
+    const pid = Number.parseInt(result.stdout.trim(), 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : 0;
+  }
+
   async write(hostDef, cfg, ctx, body) {
     let result;
     if (this.type === "system") {
@@ -174,13 +188,25 @@ export class UnitScope {
     return result.stdout;
   }
 
-  /** True when the unit's recent journal mentions EADDRINUSE (TOCTOU bind race). */
+  /**
+   * True when THIS unit's dsh failed to bind after its most recent start.
+   *
+   * Only the journal segment after the last "Started dsh web" counts: a stale
+   * EADDRINUSE line from an earlier attempt must not be mistaken for a fresh
+   * failure. This is also what detects a lost multi-user bind race — the port
+   * may be listening (someone else's dsh), yet our own process died with
+   * EADDRINUSE, so "listening" alone must never be read as "our service is up".
+   */
   async bindFailed(hostDef, cfg, ctx) {
-    const args = this.type === "system"
-      ? ["sudo", "-n", "journalctl", "-u", this.unit, "-n", "50", "--no-pager", "2>/dev/null", "|", "grep", "-m1", "-E", "EADDRINUSE"]
-      : ["journalctl", "--user-unit", this.unit, "-n", "50", "--no-pager", "2>/dev/null", "|", "grep", "-m1", "-E", "EADDRINUSE"];
-    const result = await this.run(hostDef, cfg, ctx, args, { timeoutMs: 30000 });
-    return result.code === 0 && result.stdout.trim().length > 0;
+    let text;
+    try {
+      text = await this.journal(hostDef, cfg, ctx, 200);
+    } catch {
+      return false; // no logs available: fall back to the port probe only
+    }
+    const started = text.lastIndexOf("Started dsh web");
+    const sinceStart = started === -1 ? text : text.slice(started);
+    return /EADDRINUSE/.test(sinceStart);
   }
 }
 

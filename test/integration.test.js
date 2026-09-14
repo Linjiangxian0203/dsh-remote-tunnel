@@ -6,6 +6,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
 import { killProcessTree } from "../src/local/ports.js";
+import { remoteListeners } from "../src/remote/registry.js";
 import { TunnelManager } from "../src/manager.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -131,6 +132,14 @@ test("up → real HTTP through the tunnel → status → down (happy path)", asy
     assert.equal(statusInfo.remote.unitActive, "active");
     assert.equal(statusInfo.remote.portListening, true);
 
+    // listener attribution must actually work: the port owner is OUR unit's
+    // pid (this is what stops a labmate's dsh from being mistaken for ours)
+    const targets = await manager.resolveTargets("mock");
+    const listeners = await remoteListeners(targets.hostDef, manager.cfg, manager.ctxFor("mock"));
+    const ours = listeners.find((l) => l.port === result.remotePort);
+    assert.ok(ours !== undefined, `no listener entry for port ${result.remotePort}: ${JSON.stringify(listeners)}`);
+    assert.equal(ours.pid, await targets.scope.mainPid(targets.hostDef, manager.cfg, manager.ctxFor("mock")));
+
     const down = await manager.down("mock");
     assert.equal(down.released, true);
     assert.equal(down.serviceStopped, true);
@@ -149,8 +158,7 @@ test("up → real HTTP through the tunnel → status → down (happy path)", asy
   }
 });
 
-test("concurrent allocations for two users get distinct ports", async () => {
-  const env = setup();
+test("concurrent allocations for two users get distinct ports", async () => {  const env = setup();
   const managerA = makeManager(env.home);
   // second manager: same home, but its own host alias with a different user
   const homeB = mkdtempSync(join(tmpdir(), "dsh-remote-home-b-"));
@@ -187,6 +195,53 @@ defaults:
     await managerA.down("mock");
     await managerB.down("mock");
   } finally {
+    await teardown([managerA, managerB], env);
+    rmSync(homeB, { recursive: true, force: true });
+  }
+});
+
+test("multi-user WITHOUT a shared registry (lab server case): independent registries, bind-probe safety, both users end up serving", async () => {
+  // This mirrors a real lab server: no passwordless sudo, /etc/dsh-ports.tsv not
+  // writable, home dirs 0750 so peers' registries are unreadable. The only
+  // cross-user signal is the real bind probe, and a lost bind race must retry
+  // on the next port instead of leaving anyone broken.
+  const env = setup();
+  process.env.DSH_MOCK_NO_SUDO = "1";
+  delete process.env.DSH_MOCK_SHARED_WRITABLE;
+  const managerA = makeManager(env.home);
+  const homeB = mkdtempSync(join(tmpdir(), "dsh-remote-home-b-"));
+  writeFileSync(join(homeB, "config.yaml"), `hosts:
+  mock:
+    host: mock-host
+    port: 22
+    user: bob
+    workspace: /home/bob/exp
+defaults:
+  remotePortRange: [31080, 31099]
+  localPortRange: [32080, 32099]
+  heartbeatSeconds: 0
+  localWaitSeconds: 15
+  remoteWaitSeconds: 15
+  ssh:
+    connectTimeout: 5
+`, "utf8");
+  const managerB = makeManager(homeB);
+  try {
+    const [a, b] = await Promise.all([managerA.up("mock"), managerB.up("mock")]);
+    assert.notEqual(a.remotePort, b.remotePort, "each user must end up on a different remote port");
+    assert.notEqual(a.registryPath, b.registryPath, "no shared registry: each account writes its own file");
+    const [ta, tb] = await Promise.all([httpGet(a.url), httpGet(b.url)]);
+    assert.equal(ta.status, 200);
+    assert.equal(tb.status, 200);
+    // both services really listen, on their own ports
+    const listenA = await httpGet(a.url);
+    const listenB = await httpGet(b.url);
+    assert.ok(listenA.text.includes(`mock dsh web on ${a.remotePort}`));
+    assert.ok(listenB.text.includes(`mock dsh web on ${b.remotePort}`));
+    await managerA.down("mock");
+    await managerB.down("mock");
+  } finally {
+    delete process.env.DSH_MOCK_NO_SUDO;
     await teardown([managerA, managerB], env);
     rmSync(homeB, { recursive: true, force: true });
   }

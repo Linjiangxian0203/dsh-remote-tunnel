@@ -118,12 +118,23 @@ async function killPid(pid) {
 
 async function startMockWeb(unit, port, scope, user) {
   appendJournal(unit, user, `systemctl: starting ${unit} on port ${port}`);
+  // systemd's own line, emitted when the process is spawned. The plugin slices
+  // the journal at the LAST "Started dsh web" so that a stale EADDRINUSE from
+  // an earlier attempt cannot condemn a fresh one — the mock must emit it.
+  appendJournal(unit, user, `Started dsh web (${user} on 127.0.0.1:${port}).`);
   const child = spawn(process.execPath, [SERVER_JS, String(port), journalPath(unit, user), user ?? ""], {
     detached: true,
     stdio: "ignore",
     windowsHide: true
   });
   child.unref();
+  // Real systemd reports a Type=simple start as successful as soon as the
+  // process is spawned — even when it dies immediately on EADDRINUSE (the port
+  // may be held by ANOTHER account's dsh). Mirror that: a naturally exited
+  // child leaves the unit inactive but the restart still returns 0, so the
+  // plugin must decide from the journal, not from the exit code.
+  let exited = false;
+  child.on("exit", () => { exited = true; });
   await new Promise((resolve) => setTimeout(resolve, 250));
   const key = serviceKey(unit, user);
   const entry = services()[key] ?? {};
@@ -138,6 +149,12 @@ async function startMockWeb(unit, port, scope, user) {
     return { code: 1, stdout: "", stderr: `Job for ${unit}.service failed.` };
   }
   const all = services();
+  if (exited) {
+    // died on its own (its remote-server already wrote the EADDRINUSE line)
+    all[key] = { ...entry, scope, unit, port, pid: null, active: false, user };
+    saveServices(all);
+    return { code: 0, stdout: "", stderr: "" };
+  }
   all[key] = { ...entry, scope, unit, port, pid: child.pid, active: true, user };
   saveServices(all);
   return { code: 0, stdout: "", stderr: "" };
@@ -414,6 +431,19 @@ async function runStage(state, tokens, stdinText) {
       const verb = rest[0] ?? "";
       if (verb === "is-system-running") return out("running\n");
       if (verb === "daemon-reload") return out();
+      if (verb === "show") {
+        // `systemctl show -p MainPID --value <unit>`: the pid of the unit's
+        // running process, 0 when it is not running. The plugin uses it to
+        // attribute a listening port to OUR service instead of a labmate's.
+        const props = args.filter((a) => a.startsWith("-p") || a === "--value");
+        const showUnit = rest[rest.length - 1];
+        const showEntry = services()[serviceKey(showUnit, state.user)] ?? { active: false, pid: null };
+        void props;
+        if (args.includes("MainPID") || args.join(" ").includes("MainPID")) {
+          return out(`${showEntry.active && showEntry.pid !== null ? showEntry.pid : 0}\n`);
+        }
+        return out("0\n");
+      }
       if (verb.length === 0) return out("", 1, "systemctl: missing verb");
       const unit = rest[rest.length - 1];
       if (unit === undefined) return out("", 1, "systemctl: missing unit");
@@ -456,6 +486,12 @@ async function runStage(state, tokens, stdinText) {
       return out("", 1, "unsupported loginctl");
     }
     case "ss": {
+      // Faithful flag handling: a bare `ss` (no -l/-t) lists sockets, never
+      // LISTEN rows — that is what a mis-quoted `sh -c "ss -tlnp …"` degrades
+      // to on a real server (`sh -c ss`), and it silently emptied the parse.
+      // Accept clustered short flags (`-tlnp`).
+      const shortFlags = args.filter((a) => a.startsWith("-") && !a.startsWith("--")).join("");
+      if (!shortFlags.includes("l") || !shortFlags.includes("t")) return out("");
       const lines = [];
       for (const [, entry] of Object.entries(services())) {
         if (entry.active && entry.pid !== null) {

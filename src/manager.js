@@ -119,16 +119,54 @@ export class TunnelManager {
     return this.targets.get(alias);
   }
 
+  /**
+   * Wait until OUR unit owns the port.
+   *
+   * A listening port is NOT proof of success on a shared server: another
+   * account's dsh may hold it while ours crash-loops on EADDRINUSE (systemd
+   * still reports the start as successful). Attribution is therefore by PID:
+   * the listener's pid must equal our unit's MainPID. When `ss` cannot name the
+   * listener at all, the owner is not us (ss always shows our own processes),
+   * and the journal's post-start EADDRINUSE is used as the corroborating
+   * signal. Either way a collision throws E_REMOTE_BIND so the caller retries
+   * on the next free port instead of tunneling a labmate's service.
+   */
   async waitForRemotePort(targets, port, timeoutSeconds) {
     const { hostDef, scope } = targets;
+    const ctx = this.ctxFor(hostDef.alias);
+    const collision = (detail) => {
+      const error = new TunnelError(
+        `remote port ${port} is served by another process, not our dsh (${detail})`,
+        { code: "E_REMOTE_BIND" }
+      );
+      error.port = port;
+      return error;
+    };
     const deadline = Date.now() + timeoutSeconds * 1000;
+    let stableOwnPolls = 0;
     while (Date.now() < deadline) {
-      const listening = await remoteOccupancy(hostDef, this.cfg, this.ctxFor(hostDef.alias), [port]);
-      if (listening.includes(port)) return;
-      if (await scope.bindFailed(hostDef, this.cfg, this.ctxFor(hostDef.alias))) {
-        const error = new TunnelError(`remote dsh on ${hostDef.alias} failed to bind port ${port} (EADDRINUSE)`, { code: "E_REMOTE_BIND" });
-        error.port = port;
-        throw error;
+      const occupied = (await remoteOccupancy(hostDef, this.cfg, ctx, [port])).includes(port);
+      const mainPid = await scope.mainPid(hostDef, this.cfg, ctx).catch(() => 0);
+      const listeners = await remoteListeners(hostDef, this.cfg, ctx).catch(() => []);
+      const listener = listeners.find((l) => l.port === port);
+      const bindFailed = await scope.bindFailed(hostDef, this.cfg, ctx).catch(() => false);
+
+      if (occupied) {
+        if (listener !== undefined && mainPid > 0 && listener.pid === mainPid) return; // definitively ours
+        if (listener !== undefined && listener.pid !== mainPid) {
+          throw collision(`listener pid ${listener.pid}, our unit MainPID ${mainPid || "not running"}`);
+        }
+        if (listeners.length > 0 && listener === undefined) {
+          throw collision("listening socket has no visible owner, so it cannot be our process");
+        }
+        if (bindFailed) throw collision("our dsh logged EADDRINUSE after its last start");
+        // No usable pid attribution at all: accept only after our unit has been
+        // stably running, so a crash-looping dsh gets time to reveal itself.
+        stableOwnPolls = mainPid > 0 ? stableOwnPolls + 1 : 0;
+        if (stableOwnPolls >= 3) return;
+      } else {
+        stableOwnPolls = 0;
+        if (bindFailed) throw collision("our dsh logged EADDRINUSE after its last start");
       }
       await sleep(2000);
     }
@@ -158,6 +196,7 @@ export class TunnelManager {
     let port = requestedPort ?? null;
     let reused = false;
     let allocated = false;
+    const exclude = [...initialExclude];
 
     if (port === null && await scope.exists(hostDef, this.cfg, ctx)) {
       const existing = await scope.port(hostDef, this.cfg, ctx);
@@ -172,9 +211,22 @@ export class TunnelManager {
       }
     }
 
+    if (port !== null && !reused) {
+      // An explicitly requested port. If it cannot be bound, fall back to
+      // automatic allocation instead of failing outright — on a shared server
+      // the port may have been taken by a labmate since it was noted down.
+      await provisionUnit(hostDef, this.cfg, ctx, scope, {
+        user, home: facts.home, workspace, dshPath: facts.dshPath, port
+      });
+      if (await scope.bindFailed(hostDef, this.cfg, ctx).catch(() => false)) {
+        this.out(`requested port ${port} is already taken (EADDRINUSE) — allocating a free port instead`);
+        exclude.push(port);
+        port = null;
+      }
+    }
+
     if (port === null) {
       const range = hostDef.remotePortRange ?? this.cfg.defaults.remotePortRange;
-      const exclude = [...initialExclude];
       const retries = this.cfg.defaults.allocateRetries;
       for (let attempt = 0; attempt < retries; attempt++) {
         port = await remoteAllocate(hostDef, this.cfg, ctx, registry, { range, user, workspace, source, exclude });
@@ -189,25 +241,21 @@ export class TunnelManager {
           restartFailed = error instanceof TunnelError;
           if (!restartFailed) throw error;
         }
-        // The dsh process may lose a bind race between allocation and start
-        // (TOCTOU). Only a FAILED restart plus an EADDRINUSE journal entry
-        // counts as that race — a stale journal line must not burn ports.
+        // A lost bind race can leave the port LISTENING (another account's dsh)
+        // while OUR process died with EADDRINUSE — so "listening" alone never
+        // means "our service is up". The unit's own journal decides.
+        const bindFailed = await scope.bindFailed(hostDef, this.cfg, ctx).catch(() => false);
+        if (bindFailed) {
+          this.out(`port ${port} lost a bind race (EADDRINUSE) — retrying with the next free port`);
+          exclude.push(port);
+          continue;
+        }
         if (restartFailed) {
-          const bindFailed = await scope.bindFailed(hostDef, this.cfg, ctx).catch(() => false);
-          if (bindFailed) {
-            this.out(`port ${port} lost a bind race (EADDRINUSE) — retrying with the next free port`);
-            exclude.push(port);
-            continue;
-          }
           throw new TunnelError(`systemd restart for ${scope.unit} failed — run 'dsh --profile remote logs ${alias}' for the journal`, { code: "E_UNIT" });
         }
         break;
       }
-    } else if (!reused) {
-      await provisionUnit(hostDef, this.cfg, ctx, scope, {
-        user, home: facts.home, workspace, dshPath: facts.dshPath, port
-      });
-    } else {
+    } else if (reused) {
       const active = await scope.activeState(hostDef, this.cfg, ctx);
       if (active !== "active") {
         this.out(`unit ${scope.unit} exists but is ${active} — restarting`);
@@ -283,18 +331,22 @@ export class TunnelManager {
       removeState(this.home, alias);
     }
     // A dsh that crashes on bind AFTER systemd accepted the start surfaces as
-    // E_REMOTE_BIND during the port wait — retry with that port excluded.
+    // E_REMOTE_BIND during the port wait — retry with that port excluded. A
+    // user-forced port is a PREFERENCE: once it proves to be held by someone
+    // else, fall back to automatic allocation instead of failing.
     let remote;
     const exclude = [];
+    let forcedPort = opts.remotePort;
     const retries = Math.max(1, this.cfg.defaults.allocateRetries);
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
-        remote = await this.provision(alias, { port: opts.remotePort, exclude });
+        remote = await this.provision(alias, { port: forcedPort, exclude });
         break;
       } catch (error) {
         if (error instanceof TunnelError && error.code === "E_REMOTE_BIND" && error.port !== undefined && attempt < retries - 1) {
-          this.out(`port ${error.port} failed to bind after start — retrying with the next free port`);
+          this.out(`port ${error.port} is served by another process — allocating a different port`);
           exclude.push(error.port);
+          forcedPort = undefined;
           continue;
         }
         throw error;

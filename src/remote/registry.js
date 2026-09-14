@@ -240,7 +240,10 @@ export async function remoteOccupancy(hostDef, cfg, ctx, ports) {
 /** Best-effort `ss -tlnp` snapshot: [{port, pid, process}] (sudo when available). */
 export async function remoteListeners(hostDef, cfg, ctx) {
   const sudo = await sudoPrefix(hostDef, cfg, ctx.sudoState);
-  const cmd = [...sudo, "sh", "-c", "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || true"].join(" ");
+  // No `sh -c` wrapper: the whole string is already handed to the remote
+  // shell, and an unquoted `sh -c "a || b"` argument collapses to `sh -c a`
+  // (which ran a bare `ss` and returned every socket — a silent empty parse).
+  const cmd = [...sudo, "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || true"].join(" ");
   const result = await execRemote(hostDef, cmd, { cfg, timeoutMs: 30000 });
   const rows = [];
   for (const line of result.stdout.split(/\r?\n/)) {
