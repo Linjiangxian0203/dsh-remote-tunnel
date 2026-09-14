@@ -24,6 +24,14 @@ versions are published to npm and tagged `v*` on GitHub.
   `ss` (every socket, no `users:` details) and the parse came back empty.
   `audit`'s listener/owner columns and its `conflict` verdict were therefore
   always empty on real hosts; they now report the actual pid and process.
+- **Local tunnel verification: "the port answers" is not "the tunnel is mine".**
+  Two `up` runs on the same machine can pick the same local port (the probe and
+  the ssh bind are separate steps). The loser's ssh child failed to bind, but a
+  plain TCP check on that port was satisfied by the WINNER's tunnel, so the
+  loser reported success with a URL that served another user's dsh web. The
+  local port is now verified by requesting the one-time token URL through it
+  and requiring HTTP 200; a candidate that does not serve OUR dsh is abandoned
+  and the next free local port is tried (up to 5, inside `localWaitSeconds`).
 - `up --port <n>` treats the port as a preference: when another process already
   holds it, the plugin allocates a free port and says so, instead of failing —
   or, worse, reporting success against someone else's service.
@@ -34,13 +42,17 @@ versions are published to npm and tagged `v*` on GitHub.
   `-l/-t` (a bare `ss` yields no LISTEN rows), `systemctl show -p MainPID
   --value` is implemented, and a mock service that dies on bind leaves its unit
   inactive while the restart still returns success — as real systemd does.
+- The mock's `services.json` is now written under an exclusive lock: two
+  accounts' ssh shim processes were clobbering each other's entries, which made
+  a later restart kill the other account's mock server (a mock-only artifact
+  that surfaced as flaky tests).
 
 ### Tests
 - New integration test for the lab-server case (two accounts, no shared
   registry, concurrent `up`): both users must end up serving their own dsh on
-  distinct ports.
-- The happy path now asserts that the port's listener pid equals the unit's
-  `MainPID`, so attribution cannot silently regress.
+  distinct ports, verified by the page each tunnel actually returns.
+- The happy path asserts the port's listener pid equals the unit's `MainPID`,
+  so attribution cannot silently regress.
 
 ## [0.1.10]
 

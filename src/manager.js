@@ -12,7 +12,7 @@ import {
   UnitScope, provisionUnit, ensureLinger, resolveUnitScope
 } from "./remote/unit.js";
 import { readBootstrapScript } from "./remote/bootstrap.js";
-import { findFreeLocalPort, localPortResponds, killProcessTree, pidAlive } from "./local/ports.js";
+import { findFreeLocalPort, localPortResponds, httpStatus, killProcessTree, pidAlive } from "./local/ports.js";
 import { readState, writeState, removeState, listStates, logFile } from "./local/state.js";
 import { Tunnel } from "./local/tunnel.js";
 
@@ -353,47 +353,17 @@ export class TunnelManager {
       }
     }
 
+    const localRange = this.cfg.defaults.localPortRange;
     const localInUse = new Set(
       this.listStatesLocal().map((s) => s.localPort).filter((p) => Number.isInteger(p))
     );
-    const localPort = opts.localPort ?? await findFreeLocalPort(this.cfg.defaults.localPortRange, { exclude: localInUse });
-
-    // Cross-process cancellation: once this up() has written its state file,
-    // a `down <host>` from another invocation removes it — that removes the
-    // file, so the supervisor stops reconnecting instead of resurrecting a
-    // tunnel the user just tore down.
-    let stateWritten = false;
-    const tunnel = new Tunnel({
-      hostDef: remote.hostDef,
-      cfg: this.cfg,
-      localPort,
-      remotePort: remote.port,
-      logPath: logFile(this.home, alias),
-      reporter: this.event.bind(this),
-      isCancelled: () => this.tunnels.get(alias) !== tunnel || (stateWritten && readState(this.home, alias) === undefined)
-    });
-    this.tunnels.set(alias, tunnel);
-    tunnel.start();
-
-    const deadline = Date.now() + this.cfg.defaults.localWaitSeconds * 1000;
-    let responding = false;
-    while (Date.now() < deadline) {
-      if (await localPortResponds(localPort)) { responding = true; break; }
-      await sleep(500);
-    }
-    if (!responding) {
-      await tunnel.stop();
-      this.tunnels.delete(alias);
-      throw new TunnelError(
-        `local http://127.0.0.1:${localPort} not reachable after ${this.cfg.defaults.localWaitSeconds}s — run 'logs ${alias} --local' for the tunnel output`,
-        { code: "E_LOCAL_URL" }
-      );
-    }
+    const localDeadline = Date.now() + this.cfg.defaults.localWaitSeconds * 1000;
+    const maxLocalAttempts = Math.max(1, Math.min(5, localRange[1] - localRange[0] + 1));
 
     // dsh web (>= 0.1.2-rc) gates its UI behind a one-time token carried in
-    // the launch URL it prints at startup (into the unit journal). Surface an
-    // equivalent URL pointing at the local tunnel port so `up` output opens
-    // the page directly; fall back to a hint when the journal can't supply it.
+    // the launch URL it prints at startup (into the unit journal). The token is
+    // independent of the local port, so the remote URL is resolved ONCE here
+    // and only its port is rewritten per local candidate below.
     //
     // Two real-world races: the web prints its URL 2-4s AFTER systemd reports
     // "Started", and an early fetch would otherwise match a STALE line from a
@@ -401,24 +371,115 @@ export class TunnelManager {
     // evidence). So only the segment after the last "Started dsh web" counts,
     // the LAST `dsh web:` URL in it must carry `?token=`, and the fetch
     // retries a few times to span the print delay.
-    let authUrl = null;
-    try {
-      for (let attempt = 0; attempt < 4 && authUrl === null; attempt++) {
+    const resolveRemoteLaunch = async () => {
+      for (let attempt = 0; attempt < 4; attempt++) {
         if (attempt > 0) await sleep(1500);
-        const journal = await remote.scope.journal(remote.hostDef, this.cfg, this.ctxFor(alias), 200);
+        let journal;
+        try {
+          journal = await remote.scope.journal(remote.hostDef, this.cfg, this.ctxFor(alias), 200);
+        } catch {
+          return null;
+        }
         const started = journal.lastIndexOf("Started dsh web");
         const sinceStart = started === -1 ? journal : journal.slice(started);
         const matches = [...sinceStart.matchAll(/dsh web:\s*(http\S+)/g)];
         const match = matches.length > 0 ? matches[matches.length - 1] : null;
         if (match === null) continue;
-        const url = new URL(match[1]);
-        if (url.searchParams.get("token") === null) continue; // stale/plain line — keep waiting
-        url.hostname = "127.0.0.1";
-        url.port = String(localPort);
-        authUrl = url.href;
+        try {
+          const url = new URL(match[1]);
+          if (url.searchParams.get("token") === null) continue; // stale/plain line
+          url.hostname = "127.0.0.1";
+          return url;
+        } catch {
+          continue;
+        }
       }
-    } catch {
-      // best effort: the plain URL plus the log hint below still work
+      return null;
+    };
+    const remoteLaunch = await resolveRemoteLaunch();
+    const authUrlForLocal = (localPort) => {
+      if (remoteLaunch === null) return null;
+      const url = new URL(remoteLaunch.href);
+      url.port = String(localPort);
+      return url.href;
+    };
+
+    // Pick a local port AND prove the tunnel through it reaches our dsh. A
+    // concurrent `up` on this machine can grab the same local port between the
+    // free-port probe and our ssh child's bind; a bare TCP check would then
+    // accept the OTHER tunnel (its remote dsh is a different account's) and
+    // report a working URL that serves somebody else's web UI. The token URL
+    // answering 200 through the candidate port is what makes it ours.
+    const triedLocal = new Set(localInUse);
+    // Shared by every candidate tunnel: flips once OUR state file is written,
+    // after which a removed state file cancels the supervisor (see below).
+    const stateFlag = { written: false };
+    let localPort = null;
+    let tunnel = null;
+    let authUrl = null;
+    let verified = false;
+    let lastStatus = 0;
+    const attempts = [];
+    let lastProbe = "";
+    for (let attempt = 0; attempt < maxLocalAttempts && Date.now() < localDeadline; attempt++) {
+      const candidate = attempt === 0 && opts.localPort !== undefined
+        ? opts.localPort
+        : await findFreeLocalPort(localRange, { exclude: triedLocal });
+      triedLocal.add(candidate);
+      localPort = candidate;
+
+      tunnel = new Tunnel({
+        hostDef: remote.hostDef,
+        cfg: this.cfg,
+        localPort,
+        remotePort: remote.port,
+        logPath: logFile(this.home, alias),
+        reporter: this.event.bind(this),
+        isCancelled: () => this.tunnels.get(alias) !== tunnel || (stateFlag.written && readState(this.home, alias) === undefined)
+      });
+      this.tunnels.set(alias, tunnel);
+      tunnel.start();
+
+      const candidateDeadline = Math.min(localDeadline, Date.now() + 6000);
+      const candidateAuth = authUrlForLocal(localPort);
+      while (Date.now() < candidateDeadline) {
+        const child = tunnel.child;
+        const alive = child !== undefined && child.exitCode === null && !child.killed;
+        const responds = await localPortResponds(localPort);
+        lastProbe = `child=${alive ? "alive" : "dead"} tcp=${responds ? "up" : "down"}`;
+        if (alive && responds) {
+          if (candidateAuth === null) {
+            verified = true; // pre-token dsh: a responding tunnel is all we can check
+            break;
+          }
+          lastStatus = await httpStatus(candidateAuth);
+          lastProbe += ` http=${lastStatus}`;
+          if (lastStatus === 200) {
+            verified = true;
+            break;
+          }
+        }
+        await sleep(400);
+      }
+      attempts.push(`${localPort}: ${lastProbe}`);
+      if (verified) {
+        authUrl = candidateAuth;
+        break;
+      }
+      await tunnel.stop();
+      this.tunnels.delete(alias);
+      if (opts.localPort !== undefined) break; // an explicit local port is not silently moved
+      if (Date.now() < localDeadline) {
+        this.out(`local port ${localPort} did not serve our dsh${lastStatus !== 0 ? ` (HTTP ${lastStatus})` : ""} — trying the next local port`);
+      }
+    }
+    if (!verified || tunnel === null || localPort === null) {
+      throw new TunnelError(
+        `could not establish a verified local tunnel for ${alias} within ${this.cfg.defaults.localWaitSeconds}s ` +
+        `(launch url: ${remoteLaunch === null ? "not found" : "found"}; attempts: ${attempts.join(" | ") || "none"}) — ` +
+        `run 'logs ${alias} --local' for the tunnel output`,
+        { code: "E_LOCAL_URL" }
+      );
     }
 
     const now = new Date().toISOString();
@@ -437,7 +498,9 @@ export class TunnelManager {
       startedAt: now,
       lastHeartbeatAt: now
     });
-    stateWritten = true;
+    // From here the state file is authoritative: a `down` elsewhere cancels
+    // this supervisor instead of letting it reconnect.
+    stateFlag.written = true;
     this.startHeartbeat(alias, { port: remote.port, user: remote.user });
 
     this.event({ kind: "up", alias, url: `http://127.0.0.1:${localPort}`, remotePort: remote.port, localPort });

@@ -236,8 +236,14 @@ defaults:
     // both services really listen, on their own ports
     const listenA = await httpGet(a.url);
     const listenB = await httpGet(b.url);
-    assert.ok(listenA.text.includes(`mock dsh web on ${a.remotePort}`));
-    assert.ok(listenB.text.includes(`mock dsh web on ${b.remotePort}`));
+    assert.ok(
+      listenA.text.includes(`mock dsh web on ${a.remotePort}`),
+      `A allocated ${a.remotePort} (local ${a.localPort}) but its tunnel served: ${JSON.stringify(listenA.text.slice(0, 60))}`
+    );
+    assert.ok(
+      listenB.text.includes(`mock dsh web on ${b.remotePort}`),
+      `B allocated ${b.remotePort} (local ${b.localPort}) but its tunnel served: ${JSON.stringify(listenB.text.slice(0, 60))}`
+    );
     await managerA.down("mock");
     await managerB.down("mock");
   } finally {

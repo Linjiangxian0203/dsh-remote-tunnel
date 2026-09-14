@@ -52,6 +52,22 @@ function saveServices(value) {
   writeJson(fsPath("services.json"), value);
 }
 
+/**
+ * Read-modify-write services.json under an exclusive lock. Two accounts'
+ * shim processes write this file concurrently; without the lock a lost update
+ * makes a later `systemctl restart` kill the OTHER account's mock server
+ * (a mock-only artifact — real systemd keeps per-unit state).
+ */
+async function mutateServices(mutator) {
+  const outcome = await withLock(fsPath("services.lock"), () => {
+    const all = services();
+    const result = mutator(all);
+    saveServices(all);
+    return result;
+  });
+  return outcome;
+}
+
 function linger(user) {
   return readJson(fsPath("linger.json"), {})[user] ?? "no";
 }
@@ -137,26 +153,26 @@ async function startMockWeb(unit, port, scope, user) {
   child.on("exit", () => { exited = true; });
   await new Promise((resolve) => setTimeout(resolve, 250));
   const key = serviceKey(unit, user);
-  const entry = services()[key] ?? {};
   const forcedEaddr = process.env.DSH_MOCK_EADDRINUSE_PORT !== undefined
     && Number(process.env.DSH_MOCK_EADDRINUSE_PORT) === port;
   if (forcedEaddr) {
     appendJournal(unit, user, `Error: listen EADDRINUSE: address already in use 127.0.0.1:${port}`);
     await killPid(child.pid);
-    const all = services();
-    all[key] = { ...entry, scope, unit, port, pid: null, active: false, user };
-    saveServices(all);
+    await mutateServices((all) => {
+      all[key] = { ...(all[key] ?? {}), scope, unit, port, pid: null, active: false, user };
+    });
     return { code: 1, stdout: "", stderr: `Job for ${unit}.service failed.` };
   }
-  const all = services();
   if (exited) {
     // died on its own (its remote-server already wrote the EADDRINUSE line)
-    all[key] = { ...entry, scope, unit, port, pid: null, active: false, user };
-    saveServices(all);
+    await mutateServices((all) => {
+      all[key] = { ...(all[key] ?? {}), scope, unit, port, pid: null, active: false, user };
+    });
     return { code: 0, stdout: "", stderr: "" };
   }
-  all[key] = { ...entry, scope, unit, port, pid: child.pid, active: true, user };
-  saveServices(all);
+  await mutateServices((all) => {
+    all[key] = { ...(all[key] ?? {}), scope, unit, port, pid: child.pid, active: true, user };
+  });
   return { code: 0, stdout: "", stderr: "" };
 }
 
@@ -452,18 +468,29 @@ async function runStage(state, tokens, stdinText) {
       const entry = svc[key] ?? { active: false, enabled: false, pid: null };
       if (verb === "is-active") return entry.active ? out("active\n") : out("inactive\n", 3);
       if (verb === "is-enabled") return entry.enabled ? out("enabled\n") : out("disabled\n", 1);
-      if (verb === "enable") { svc[key] = { ...entry, enabled: true }; saveServices(svc); return out(); }
-      if (verb === "disable") { svc[key] = { ...entry, enabled: false }; saveServices(svc); return out(); }
+      if (verb === "enable") {
+        await mutateServices((all) => { all[key] = { ...(all[key] ?? {}), enabled: true }; });
+        return out();
+      }
+      if (verb === "disable") {
+        await mutateServices((all) => { all[key] = { ...(all[key] ?? {}), enabled: false }; });
+        return out();
+      }
       if (verb === "restart") {
         if (!existsSync(unitFileFor(scope, unit, state.user))) return out("", 5, `Unit ${unit}.service not found.`);
         const parsed = parseUnit(readFileSync(unitFileFor(scope, unit, state.user), "utf8"));
-        await killPid(entry.pid);
+        let oldPid = null;
+        await mutateServices((all) => { oldPid = all[key]?.pid ?? null; });
+        await killPid(oldPid);
         return startMockWeb(unit, parsed.port ?? 3080, scope, parsed.user ?? state.user);
       }
       if (verb === "stop") {
-        await killPid(entry.pid);
-        svc[key] = { ...entry, active: false, pid: null };
-        saveServices(svc);
+        let oldPid = null;
+        await mutateServices((all) => {
+          oldPid = all[key]?.pid ?? null;
+          all[key] = { ...(all[key] ?? {}), active: false, pid: null };
+        });
+        await killPid(oldPid);
         return out();
       }
       return out("", 1, `unsupported systemctl verb ${verb}`);
