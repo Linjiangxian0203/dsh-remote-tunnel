@@ -1,4 +1,5 @@
 import net from "node:net";
+import http from "node:http";
 import { execFile } from "node:child_process";
 import { TunnelError } from "../errors.js";
 
@@ -35,6 +36,41 @@ export async function localPortResponds(port, timeoutMs = 2000) {
     socket.on("connect", () => { socket.destroy(); resolve(true); });
     socket.on("timeout", () => { socket.destroy(); resolve(false); });
     socket.on("error", () => resolve(false));
+  });
+}
+
+/**
+ * HTTP GET status through the local tunnel (0 on any failure).
+ *
+ * A plain TCP connect is satisfied by ANY listener on that port — including
+ * another concurrent `up` on this machine that grabbed the same local port
+ * first. Only an HTTP request that reaches OUR remote dsh (its one-time token
+ * URL answers 200) proves the tunnel carries our traffic.
+ */
+export function httpStatus(url, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      resolve(0);
+      return;
+    }
+    const request = http.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port === "" ? 80 : Number(parsed.port),
+        path: `${parsed.pathname}${parsed.search}`,
+        method: "GET"
+      },
+      (response) => {
+        response.resume();
+        resolve(response.statusCode ?? 0);
+      }
+    );
+    request.setTimeout(timeoutMs, () => { request.destroy(); resolve(0); });
+    request.on("error", () => resolve(0));
+    request.end(); // http.request only prepares the request; without end() it is never sent
   });
 }
 
