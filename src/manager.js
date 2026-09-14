@@ -452,9 +452,13 @@ export class TunnelManager {
             verified = true; // pre-token dsh: a responding tunnel is all we can check
             break;
           }
+          // A valid launch token is answered with 303 (mint the cookie, redirect
+          // to the clean URL) or 200 (already authenticated); a token that is
+          // not ours gets 401/403 from the other instance. So: any 2xx/3xx
+          // proves the tunnel reaches OUR dsh, and 401/403 means it does not.
           lastStatus = await httpStatus(candidateAuth);
           lastProbe += ` http=${lastStatus}`;
-          if (lastStatus === 200) {
+          if (lastStatus >= 200 && lastStatus < 400) {
             verified = true;
             break;
           }
