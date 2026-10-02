@@ -405,3 +405,35 @@ if ("rejection" in admission) { res.writeHead(admission.rejection); res.end(); r
 
 **附带**:3a 验收时点过「断开连接 / down」,本地隧道状态已清空、3081 已释放(预期行为);
 下次要用面板时,在卡片或状态条上点「启动隧道 / up」即可(端口可能变化)。
+
+## 16. 阶段 4c 完成 —— 0.2.0 已发布(2026-10-02 19:08 本地)
+
+| 项 | 结果 |
+|---|---|
+| push | `main` `52036da..e3d25a0` ✓(15 个提交) |
+| tag | `v0.2.0`(annotated)已推送,触发 `publish.yml` 与 `CI` |
+| GitHub Actions | Publish to npm:所有步骤 success(checkout → setup-node → npm ci → test → publish → 贴发布说明) |
+| GitHub Release | 已创建 `dsh v0.2.0`,正文为 `.github/releases/v0.2.0.md`(中英) |
+| npm | `dsh-remote-tunnel@0.2.0` 上线,`dist-tags.latest = 0.2.0`,shasum `9951e004…`(与 CI 输出一致) |
+
+**过程记录(下次别慌)**:publish 日志里 npm 会回一句
+"Your package is being processed and may take a few minutes to become available."
+所以发布后头 1 分钟查 registry 仍是旧版本(直查 /dsh-remote-tunnel/0.2.0 甚至 404),约 1 分钟后才可见。
+
+**发布包自检**(直接拉 registry 上的 tarball 核对,33 个文件):
+locale/{en,zh}.json ✓、src/client.js ✓、src/web.js ✓、src/probe.js ✓、cordis.patch.yml ✓、CHANGELOG.md ✓、README.zh.md ✓;
+package.json:version 0.2.0、dsh.client.platform=web、exports["./client"]、exports["./locale/*.json"]、peer 两条线 + schemastery ✓。
+
+## 17. 阶段 4d 验收步骤(用户操作:GUI 装 npm 版)
+
+1. 「插件」页找到「远程隧道 (dsh-remote-tunnel)」→ **卸载**(清掉开发期的 link 安装);
+   命令行等价:dsh plugin --profile desktop remove dsh-remote-tunnel(用桌面 shim);
+2. **彻底退出并重启**桌面应用(让 profile 重新组合);
+3. 「插件」页 →「添加插件」→ 输入 dsh-remote-tunnel → 安装;
+4. **再重启一次**桌面应用;
+5. 验收:插件页中文标题/描述(0.2.0);发 /remote hosts 出卡片;输入框上方状态条;「在侧栏打开」出远端 dsh web;
+   面板里 hostname = being-Super-Server;
+6. 回滚:卸载后再 dsh plugin --profile desktop add <本仓库目录> 即回到开发期 link 安装。
+
+> 注意:一旦 GUI 从 npm 装的是**真实副本**(不是 junction),仓库里的改动**不再对桌面端生效**;
+> 开始 0.2.1(侧栏「远程主机」面板)开发时,需要先把 link 安装加回来。
