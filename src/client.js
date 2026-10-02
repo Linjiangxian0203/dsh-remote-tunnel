@@ -7,7 +7,8 @@
 // Two jobs, both client-side by nature:
 //   1. render the /remote command node (the chat dispatches
 //      'conversation.chat.commandview' keyed by command name);
-//   2. open the remote workspace in the right sidebar, on demand.
+//   2. drive the tunnel and open the remote workspace — in the right sidebar or
+//      in the system browser, the two modes the plugin offers.
 // It declares no `inject`: services are resolved lazily so the plugin always
 // applies and reports what happened, even when a service mounts late.
 window.__ModuleLoader__.load({
@@ -67,7 +68,6 @@ window.__ModuleLoader__.load({
         delivered = true;
         callback(service, owner);
       }
-      // Polling fallback: runs even when ctx.inject is missing or never fires.
       (function poll(attempt) {
         if (delivered) return;
         var service;
@@ -86,7 +86,6 @@ window.__ModuleLoader__.load({
         }
         setTimeout(function () { poll(attempt + 1); }, 500);
       })(0);
-      // Race-free path: cordis waits for the dependency itself.
       if (typeof ctx.inject === "function") {
         try {
           ctx.inject([name], function (scoped) {
@@ -102,6 +101,8 @@ window.__ModuleLoader__.load({
       }
     }
 
+    var TONE = { ok: "#3fa45b", error: "#d4380d", running: "#8a8a8a" };
+
     var S = {
       card: {
         display: "flex", flexDirection: "column", gap: "6px", padding: "10px 12px",
@@ -110,7 +111,9 @@ window.__ModuleLoader__.load({
       },
       head: { display: "flex", alignItems: "baseline", gap: "8px", fontWeight: 600 },
       args: { opacity: 0.6, fontWeight: 400, fontSize: "12px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" },
-      badge: { marginLeft: "auto", fontSize: "11px", opacity: 0.7, fontWeight: 400 },
+      // A status label, deliberately not button-shaped: the colour lives in the dot.
+      badge: { marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 400, opacity: 0.75 },
+      dot: { width: "7px", height: "7px", borderRadius: "50%", display: "inline-block" },
       out: {
         margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word",
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "12px", opacity: 0.9
@@ -121,9 +124,23 @@ window.__ModuleLoader__.load({
         color: "inherit", background: "transparent", borderRadius: "8px",
         border: "1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.4))"
       },
+      danger: {
+        font: "inherit", fontSize: "12px", padding: "4px 10px", cursor: "pointer",
+        background: "transparent", borderRadius: "8px",
+        border: "1px solid rgba(212,56,13,0.55)", color: "#d4380d"
+      },
+      select: {
+        font: "inherit", fontSize: "12px", padding: "3px 6px", borderRadius: "8px",
+        color: "inherit", background: "transparent",
+        border: "1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.4))"
+      },
       muted: { opacity: 0.65, fontSize: "12px" },
       error: { color: "var(--dsw-alias-label-error, #d4380d)", fontSize: "12px" }
     };
+
+    function hostQuery(alias) {
+      return alias === undefined || alias === null || alias === "" ? "" : "&host=" + encodeURIComponent(alias);
+    }
 
     return {
       name: "remote-tunnel",
@@ -144,7 +161,7 @@ window.__ModuleLoader__.load({
           if (service === undefined || typeof service.openTab !== "function") {
             throw new Error("the sidebarRight service is unavailable (no Browser panel here)");
           }
-          var state = await callHost("open?mode=panel" + (host ? "&host=" + encodeURIComponent(host) : ""));
+          var state = await callHost("open?mode=panel" + hostQuery(host));
           service.openTab("browser", { params: { url: state.authUrl } });
           return state;
         }
@@ -155,70 +172,123 @@ window.__ModuleLoader__.load({
           var statusState = React.useState(null);
           var busyState = React.useState("");
           var errorState = React.useState(null);
+          var confirmState = React.useState(false);
+          var pickState = React.useState(null);
           var status = statusState[0], setStatus = statusState[1];
           var busy = busyState[0], setBusy = busyState[1];
           var error = errorState[0], setError = errorState[1];
+          var confirming = confirmState[0], setConfirming = confirmState[1];
+          var picked = pickState[0], setPicked = pickState[1];
 
           var refresh = React.useCallback(function () {
             callHost("status").then(function (value) { setStatus(value); setError(null); },
               function (failure) { setError(textOf(failure)); });
           }, []);
           React.useEffect(function () { refresh(); }, [refresh]);
+          // The disconnect confirmation expires by itself, so a stray first click
+          // can never arm the destructive action indefinitely.
+          React.useEffect(function () {
+            if (!confirming) return undefined;
+            var timer = setTimeout(function () { setConfirming(false); }, 5000);
+            return function () { clearTimeout(timer); };
+          }, [confirming]);
 
-          function aliasOfTunnel() {
-            return status && status.tunnels && status.tunnels.length > 0 ? status.tunnels[0].alias : undefined;
+          function tunnel() {
+            return status && status.tunnels && status.tunnels.length > 0 ? status.tunnels[0] : null;
           }
 
-          function run(mode) {
+          function target() {
+            if (picked !== null && picked !== "") return picked;
+            var current = tunnel();
+            if (current !== null) return current.alias;
+            return status && status.hosts && status.hosts.length > 0 ? status.hosts[0].alias : undefined;
+          }
+
+          function work(mode, promise) {
             setBusy(mode);
             setError(null);
-            var alias = aliasOfTunnel();
-            var work = mode === "browser"
-              ? callHost("open?mode=browser" + (alias ? "&host=" + encodeURIComponent(alias) : ""))
-              : openPanel(alias);
-            work.then(function () { setBusy(""); refresh(); },
+            setConfirming(false);
+            promise.then(function () { setBusy(""); refresh(); },
               function (failure) { setBusy(""); setError(textOf(failure)); });
           }
 
+          function openIn(mode) {
+            var alias = target();
+            work(mode, mode === "browser"
+              ? callHost("open?mode=browser" + hostQuery(alias))
+              : openPanel(alias));
+          }
+
           function start() {
-            var alias = status && status.hosts && status.hosts.length > 0 ? status.hosts[0].alias : undefined;
+            var alias = target();
             if (alias === undefined) {
               setError("no host defined — add one in ~/.ssh/config or with 'hosts add'");
               return;
             }
-            setBusy("up");
-            setError(null);
-            callHost("up?host=" + encodeURIComponent(alias)).then(function () { setBusy(""); refresh(); },
-              function (failure) { setBusy(""); setError(textOf(failure)); });
+            work("up", callHost("up?host=" + encodeURIComponent(alias)));
           }
 
-          var tunnel = status && status.tunnels && status.tunnels.length > 0 ? status.tunnels[0] : null;
+          function stop() {
+            var alias = target();
+            if (alias === undefined) return;
+            work("down", callHost("down?host=" + encodeURIComponent(alias)));
+          }
+
+          var current = tunnel();
+          var tone = outcome === null ? "running" : outcome.kind === "error" ? "error" : "ok";
+          var label = outcome === null ? "执行中 / running" : outcome.kind === "error" ? "失败 / failed" : "完成 / done";
+
           var children = [
             h("div", { key: "head", style: S.head },
               h("span", null, "/" + (node.name || "remote")),
               node.args ? h("span", { style: S.args }, node.args) : null,
-              h("span", { style: S.badge },
-                outcome === null ? "running" : outcome.kind === "error" ? "失败 / failed" : "完成 / done"))
+              h("span", { key: "state", style: S.badge, title: "命令状态 / command outcome" },
+                h("span", { style: Object.assign({}, S.dot, { background: TONE[tone] }) }),
+                label))
           ];
           if (outcome && outcome.text) children.push(h("pre", { key: "out", style: S.out }, outcome.text));
           children.push(h("div", { key: "tunnel", style: S.muted },
-            tunnel !== null
-              ? "隧道:" + tunnel.alias + " · " + tunnel.host + ":" + tunnel.remotePort + " · " + tunnel.url + (tunnel.workspace ? " · " + tunnel.workspace : "")
+            current !== null
+              ? "隧道:" + current.alias + " · " + current.host + ":" + current.remotePort + " · " + current.url + (current.workspace ? " · " + current.workspace : "")
               : (status === null ? "读取状态中… / reading status" : "当前没有隧道在跑 / no tunnel is up")));
-          children.push(h("div", { key: "buttons", style: S.row },
-            h("button", { style: S.button, disabled: busy !== "", onClick: function () { run("browser"); } },
-              busy === "browser" ? "打开中…" : "在浏览器打开"),
-            h("button", { style: S.button, disabled: busy !== "", onClick: function () { run("panel"); } },
-              busy === "panel" ? "打开中…" : "在侧栏打开"),
-            status !== null && tunnel === null
-              ? h("button", { style: S.button, disabled: busy !== "", onClick: start }, busy === "up" ? "启动中…" : "启动隧道 / up")
-              : null,
-            h("button", { style: S.button, disabled: busy !== "", onClick: refresh }, "刷新 / refresh")));
-          if (error !== null) children.push(h("div", { key: "error", style: S.error }, error));
+
           if (status && status.hosts && status.hosts.length > 1) {
-            children.push(h("div", { key: "hosts", style: S.muted },
-              "主机 / hosts:" + status.hosts.map(function (item) { return item.alias; }).join(", ")));
+            children.push(h("div", { key: "pick", style: S.row },
+              h("span", { style: S.muted }, "主机 / host"),
+              h("select", {
+                style: S.select,
+                value: picked === null ? (target() || "") : picked,
+                onChange: function (event) { setPicked(event.target.value); }
+              }, status.hosts.map(function (item) {
+                return h("option", { key: item.alias, value: item.alias }, item.alias + " · " + item.host + ":" + item.port);
+              }))));
           }
+
+          var buttons = [
+            h("button", { key: "browser", style: S.button, disabled: busy !== "", onClick: function () { openIn("browser"); } },
+              busy === "browser" ? "打开中…" : "在浏览器打开"),
+            h("button", { key: "panel", style: S.button, disabled: busy !== "", onClick: function () { openIn("panel"); } },
+              busy === "panel" ? "打开中…" : "在侧栏打开")
+          ];
+          if (status !== null && current === null) {
+            buttons.push(h("button", { key: "up", style: S.button, disabled: busy !== "", onClick: start },
+              busy === "up" ? "连接中…" : "启动隧道 / up"));
+          }
+          if (current !== null) {
+            buttons.push(h("button", {
+              key: "down",
+              style: confirming ? S.danger : S.button,
+              disabled: busy !== "",
+              onClick: function () { if (confirming) stop(); else setConfirming(true); }
+            }, busy === "down" ? "断开中…" : confirming ? "确认断开?" : "断开连接 / down"));
+          }
+          buttons.push(h("button", { key: "refresh", style: S.button, disabled: busy !== "", onClick: refresh }, "刷新 / refresh"));
+          children.push(h("div", { key: "buttons", style: S.row }, buttons));
+          if (confirming) {
+            children.push(h("div", { key: "warn", style: S.muted },
+              "再次点击「确认断开?」将停止隧道、停掉服务器上的 dsh-web 并释放端口(5 秒后自动取消)"));
+          }
+          if (error !== null) children.push(h("div", { key: "error", style: S.error }, error));
           return h("div", { style: S.card }, children);
         }
 
