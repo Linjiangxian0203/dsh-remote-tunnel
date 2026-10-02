@@ -312,6 +312,7 @@ The integration suite uses a fake `ssh` that interprets the plugin's remote comm
 - The plugin never stores or transmits passwords, keys, or API keys; ssh always uses existing keys (BatchMode — no password prompts, no hangs)
 - The registry records no sensitive information (see [`docs/registry-format.en.md`](docs/registry-format.en.md) · [中文](docs/registry-format.md))
 - Remote scripts only append/rewrite the registry and the systemd unit under `flock`; no other writes
+- The desktop/web `/remote-tunnel/*` routes go through the runtime's own admission check (`ctx.connection.admit()` — the same Host/Origin fence plus browser-session cookie the `/api` channel uses) and answer 401/403 otherwise, because they hand out a URL carrying a one-time launch token. A carrier that genuinely cannot present a cookie can opt out with `auth: false` (not recommended)
 
 ## Non-goals
 

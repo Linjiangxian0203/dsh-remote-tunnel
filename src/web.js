@@ -5,6 +5,12 @@ import { record, snapshot } from "./probe.js";
 // bundle calls. Routes live under /remote-tunnel/ and ride the same carrier as
 // the rest of the GUI — the browser half reaches them through the shell origin.
 //
+// Every request is admitted through `ctx.connection.admit()`, the same
+// Host/Origin fence plus browser-session check the /api channel uses: these
+// routes hand out a URL that carries a one-time launch token, so an
+// unauthenticated loopback caller must not be able to read it. A carrier that
+// cannot present a cookie can be accommodated with the `auth: false` config.
+//
 // The desktop renderer talks to us without a cookie observable from outside, so
 // `report` doubles as a black box: the client half records its lifecycle here
 // and `status` exposes it, together with which host services ever mounted.
@@ -31,6 +37,21 @@ function message(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Apply the platform's request trust and browser authentication.
+ *
+ * @returns the rejection status (403 fence / 401 unauthenticated), or undefined
+ *   when the request is admitted — or when checking is disabled/unavailable.
+ */
+export function authRejection(connection, settings, request) {
+  if (settings?.auth === false) return undefined;
+  if (connection === undefined || typeof connection.admit !== "function") return undefined;
+  const admission = connection.admit(request);
+  return admission !== null && typeof admission === "object" && "rejection" in admission
+    ? admission.rejection
+    : undefined;
+}
+
 /** Resolve the tunnel this request is about: ?host=<alias>, else the only one. */
 function pickTunnel(manager, wanted) {
   const states = manager.listStatesLocal();
@@ -43,20 +64,37 @@ function pickTunnel(manager, wanted) {
 export function registerWebRoutes(ctx, manager, services, settings) {
   const webServer = ctx.get("webServer");
   if (webServer === undefined) return;
+  // The Connection service can mount after this row, so it is resolved per
+  // request rather than captured here (a missing service means "no check
+  // available", which `authRejection` treats as unverified-but-allowed).
+  const connection = () => {
+    try {
+      return ctx.get("connection");
+    } catch (error) {
+      return undefined;
+    }
+  };
   const dispose = webServer.register({
     kind: "prefix",
     path: PREFIX,
     handler: (req, res) => {
-      void handle(manager, services, settings, req, res);
+      void handle(connection, manager, services, settings, req, res);
     }
   });
   ctx.effect(() => () => dispose(), "remote-tunnel.web");
 }
 
-async function handle(manager, services, settings, req, res) {
+async function handle(connection, manager, services, settings, req, res) {
   const url = new URL(req.url ?? PREFIX, "http://127.0.0.1");
   const action = url.pathname.slice(PREFIX.length).replace(/^\/+/, "");
   try {
+    const rejection = authRejection(connection(), settings, req);
+    if (rejection !== undefined) {
+      record("rejected", rejection + " " + action);
+      res.writeHead(rejection, { ...JSON_HEADERS });
+      res.end();
+      return;
+    }
     switch (action) {
       case "report":
         record(url.searchParams.get("event") ?? "unknown", url.searchParams.get("detail"));
