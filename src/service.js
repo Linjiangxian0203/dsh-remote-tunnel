@@ -10,7 +10,13 @@ const USAGE = "/remote hosts | check <host> | bootstrap <host> [--upgrade] | up 
 
 export function registerSlashCommands(ctx, home) {
   const commands = ctx.get("commands");
-  if (commands === undefined) return;
+  if (commands === undefined) {
+    // Never fail silently: on an unknown host the /remote commands simply do
+    // not exist, and that is worth one line in the log.
+    const profileName = ctx.get("profileContext")?.name ?? "unknown";
+    ctx.logger?.warn?.(`remote-tunnel: the 'commands' service is not mounted in profile "${profileName}" — /remote slash commands stay unavailable (tunnel manager itself is unaffected)`);
+    return;
+  }
 
   const manager = new TunnelManager({
     home,
