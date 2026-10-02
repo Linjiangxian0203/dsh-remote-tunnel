@@ -350,3 +350,26 @@ loaded → service sidebarRight → view conversation.chat.commandview#remote
    ```
    应能看到当前生效的 row 配置原文。
 
+
+## 14. 更正:状态条在"全新会话"里不会显示(2026-10-02 18:35)
+
+3a.1 的验收清单写错了。读了输入栏实现之后确认:
+
+```js
+// @deepseek-ai/dsh-client-ui-conversation 的 InputBar
+children: [ variant === "composer" && input !== void 0 && sessionId !== void 0
+              ? renderSlot("conversation.composer.dock", {}) : null, … ]
+```
+
+`conversation.composer.dock` **只在会话已有内容(variant === "composer")且已有输入边界时渲染**;
+全新会话走的是 `variant === "hero"`(居中输入框 + 探索未至之境),那一支不渲染这个座位。
+输入栏里其它座位(`…input.activity/left/right/model`)同样要求 `input !== undefined`;
+`conversation.input.overlay` 只要求 sessionId,但它的 CSS 是 `height:0; position:absolute`(弹层锚点),不适合放普通行。
+
+**因此现状(0.2.0 接受)**:会话里只要有过内容 → 状态条出现;纯新会话里插件没有可见入口。
+**根治留给 0.2.1 的侧栏「远程主机」面板(3c)** —— 侧栏标签条/指南在任何会话状态下都可点。
+(用户 2026-10-02 拍板:采用方案 A。)
+
+顺带记录:配置表单要去 **设置(左下角齿轮)→ 插件** 看,不是「插件」页的清单卡片;
+我们的 Config 已通过运行时的原生 schema 检查(brand/type/meta 三项),应当会生成表单。
+
