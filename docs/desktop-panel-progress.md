@@ -220,3 +220,41 @@ $env:TEMP='G:\remote_ssh_dsh\_tmp'; $env:TMP=$env:TEMP; node test/integration.te
 4. 点「在侧栏打开」→ 右侧栏出现远端 dsh web;点「在浏览器打开」→ 系统浏览器打开同一 URL;
 5. 面板里发「执行 hostname 命令,把原始输出返回给我」→ `being-Super-Server`(V4)。
 
+
+## 9. 验收通过(2026-10-02 17:25)
+
+| 编号 | 验收点 | 结果 |
+|---|---|---|
+| V1 | 桌面端「插件」页出现插件、可开关、中文标题 | ✅「远程隧道 (dsh-remote-tunnel)」+ 中文描述(刷新即生效,无需重启) |
+| V2 | 侧栏「浏览器」显示服务器上的 dsh web | ✅ 由卡片「在侧栏打开」打开;面板里能看到服务器工作区/会话 |
+| V3 | 自动过鉴权,不出现 authentication required | ✅(token → 303 → cookie,面板刷新仍正常) |
+| V4 | 面板里执行 hostname 返回 being-Super-Server | ✅ 17:25 实测 |
+
+黑匣子(/remote-tunnel/status 的 client.events)同期记录:
+```
+loaded → service sidebarRight → view conversation.chat.commandview#remote
+→ idle "autoOpen is off" → command "hosts" → command-ok "XDU-zc 82.157.182.71:6204 [ssh-config]"
+```
+
+已知的两个"看起来像 bug 其实不是"的点,记下来免得重复排查:
+- **输入法预编辑文本是蓝色的**:那是 composer 对 IME 未上屏文本的着色,属于外壳行为,与本插件无关;
+- **卡片右上角「完成 / done」不可点**:它是**状态标签**(running / 失败 / 完成),不是按钮。
+  阶段 3a 会把它改成更明显的标签样式(圆点 + 淡色),避免误认为可点。
+
+## 10. 阶段 3 / 4 计划(2026-10-02 更新)
+
+### 阶段 3(体验收口)
+| 编号 | 内容 | 备注 |
+|---|---|---|
+| 3a | 卡片打磨:状态改标签样式;新增「**断开连接 / down**」(两步确认);up/down 后状态即时刷新;多主机时可选择主机 | 宿主侧 `/remote-tunnel/down` 已存在,只差 UI |
+| 3b | `Config` schema → 「设置 → 插件」:home、端口区间、主机表、`openIn`、`autoOpen` | |
+| 3c | (可选,待定)侧栏「远程主机」独立面板:需要新注册一个 sidebar tab kind | 卡片已覆盖大部分需求,建议后置 |
+| 3d | 双语 README:桌面面板 / 双模式 / GUI「添加插件」安装 / 排障;lab 指南更新;清理失效地址 | |
+| 3e | 安全小项:`/remote-tunnel/*` 目前不校验来源(loopback 上任何进程都能读到含 token 的 URL),计划要求携带会话 cookie 或收紧字段 | |
+
+### 阶段 4(发版 0.2.0)
+1. 打包自检(`exports`/`files`/locale/client 半)→ `npm pack` 在临时目录验证;
+2. 版本号 0.2.0 + CHANGELOG + `.github/releases/v0.2.0.md`(中英);
+3. 打 `v0.2.0` tag → GitHub Actions(`publish.yml`)→ npm publish;
+4. 端到端验收:卸载开发期的 link 安装 → GUI「添加插件」输入 `dsh-remote-tunnel` → 装上即中文、卡片可用、面板可开、`hostname` = being-Super-Server。
+
