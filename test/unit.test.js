@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { parseSshConfig, findSshAlias } from "../src/ssh-config.js";
 import { parseTsv, sanitizeField, REGISTRY_COLUMNS } from "../src/remote/registry.js";
 import { normalizeConfig, DEFAULT_CONFIG } from "../src/config.js";
@@ -192,3 +193,123 @@ test("resolveMode: webStartup only ever promotes to service", () => {
   assert.equal(resolveMode(fakeCtx({})), "cli");
   assert.equal(resolveMode(fakeCtx({ profile: "web", webStartup: undefined })), "service");
 });
+
+// ---- browser half (src/client.js) ------------------------------------------
+// The bundle only ever runs inside the web renderer, so this loads it with a
+// captured module loader, a stubbed React and a fake host, then renders the
+// /remote card twice (before and after the status fetch settles). It is the
+// only automated check that the card keeps both open modes and the disconnect
+// confirmation wiring.
+
+function loadClientBundle() {
+  const source = readFileSync(new URL("../src/client.js", import.meta.url), "utf8");
+  let captured;
+  const window = { __ModuleLoader__: { load: (definition) => { captured = definition; } } };
+  const requests = [];
+  const fetchStub = async (url) => {
+    requests.push(String(url));
+    const body = String(url).includes("/status")
+      ? {
+        ok: true,
+        config: { openIn: "ask", autoOpen: false },
+        hosts: [{ alias: "lab", host: "10.0.0.1", port: 22 }],
+        tunnels: state.tunnels
+      }
+      : { ok: true, alias: "lab", authUrl: "http://127.0.0.1:3081/?token=t" };
+    return { ok: true, status: 200, json: async () => body };
+  };
+  const state = { tunnels: [{ alias: "lab", host: "10.0.0.1", remotePort: 3080, url: "http://127.0.0.1:3081", workspace: "/home/lab" }] };
+  const Image = class { set src(_value) { /* beacon is fire and forget */ } };
+  const globalObject = {};
+  new Function("window", "globalThis", "fetch", "Image", "console", "setTimeout", "encodeURIComponent", "Promise", "Date", source)(
+    window, globalObject, fetchStub, Image, console, setTimeout, encodeURIComponent, Promise, Date
+  );
+  return { captured, requests, state, Image, globalObject, fetchStub };
+}
+
+function fakeReact() {
+  const cells = [];
+  let cursor = 0;
+  let effects = [];
+  return {
+    api: {
+      createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat() }),
+      useState: (initial) => {
+        const index = cursor++;
+        if (!(index in cells)) cells[index] = typeof initial === "function" ? initial() : initial;
+        return [cells[index], (value) => { cells[index] = typeof value === "function" ? value(cells[index]) : value; }];
+      },
+      useCallback: (fn) => fn,
+      useEffect: (fn) => { effects.push(fn); }
+    },
+    begin() { cursor = 0; effects = []; },
+    drain() { const pending = effects; effects = []; pending.forEach((fn) => fn()); }
+  };
+}
+
+function collectStrings(value, out = []) {
+  if (value === null || value === undefined) return out;
+  if (typeof value === "string") { out.push(value); return out; }
+  if (Array.isArray(value)) { value.forEach((item) => collectStrings(item, out)); return out; }
+  if (typeof value === "object") collectStrings(value.children, out);
+  return out;
+}
+
+async function renderRemoteCard(load) {
+  const react = fakeReact();
+  const plugin = load.captured.factory((name) => {
+    if (name === "react") return react.api;
+    throw new Error("unexpected require: " + name);
+  });
+  assert.equal(plugin.name, "remote-tunnel");
+  assert.equal(typeof plugin.apply, "function");
+  const opened = [];
+  const registered = [];
+  const ctx = {
+    sidebarRight: { openTab: (...args) => { opened.push(args); } },
+    inject: (deps, callback) => { callback(ctx); },
+    slots: {
+      inject: (name, callback) => callback(),
+      register: (definition, Component) => { registered.push({ definition, Component }); return () => {}; }
+    }
+  };
+  plugin.apply(ctx);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const entry = registered[0];
+  assert.ok(entry, "the command view must be registered");
+  assert.equal(entry.definition.name, "conversation.chat.commandview");
+  assert.equal(entry.definition.key, "remote");
+  const node = { name: "remote", args: " hosts", outcome: { kind: "success", text: "lab  10.0.0.1:22  [ssh-config]" } };
+  const render = () => {
+    react.begin();
+    const tree = entry.Component({ node });
+    react.drain();
+    return collectStrings(tree).join(" | ");
+  };
+  const before = render();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const after = render();
+  return { before, after, opened, ctx };
+}
+
+test("client bundle: registers the /remote card with both open modes and the disconnect step", async () => {
+  const load = loadClientBundle();
+  assert.equal(load.captured.id, "dsh-remote-tunnel");
+  const { before, after } = await renderRemoteCard(load);
+  assert.ok(before.includes("在侧栏打开"), before);
+  assert.ok(after.includes("在浏览器打开"), after);
+  assert.ok(after.includes("在侧栏打开"), after);
+  assert.ok(after.includes("完成 / done"), after);
+  assert.ok(after.includes("隧道:lab"), after);
+  assert.ok(after.includes("断开连接 / down"), after);
+  assert.ok(!after.includes("启动隧道 / up"), "a live tunnel must not offer up");
+});
+
+test("client bundle: a stopped tunnel offers up instead of down", async () => {
+  const load = loadClientBundle();
+  load.state.tunnels = [];
+  const { after } = await renderRemoteCard(load);
+  assert.ok(after.includes("启动隧道 / up"), after);
+  assert.ok(!after.includes("断开连接 / down"), after);
+});
+
