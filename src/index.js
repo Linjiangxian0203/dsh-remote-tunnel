@@ -1,7 +1,9 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { runCli } from "./cli.js";
+import { TunnelManager } from "./manager.js";
 import { registerSlashCommands } from "./service.js";
+import { registerWebRoutes } from "./web.js";
 
 // dsh-remote-tunnel — Remote Host Tunnel Manager bundle entry.
 // One row serves two modes, chosen at apply time:
@@ -46,8 +48,23 @@ export function apply(ctx, config) {
   // snapshot the CLI half parses. Service mode never reads it.
   ctx.get("cmdlineArgs").get();
   if (resolveMode(ctx) === "service") {
-    registerSlashCommands(ctx, home);
+    applyService(ctx, home);
     return;
   }
   runCli(ctx, home);
+}
+
+/**
+ * Service mode: one tunnel manager, shared by the `/remote` slash command and
+ * the browser half's HTTP routes. `ctx.inject` waits for each service instead
+ * of racing the rows that provide it (rows mount concurrently).
+ */
+function applyService(ctx, home) {
+  const manager = new TunnelManager({
+    home,
+    reporter: { out() {}, err() {}, event() {} }
+  });
+  ctx.effect(() => () => manager.dispose(), "remote-tunnel.service");
+  ctx.inject(["commands"], (scoped) => registerSlashCommands(scoped, manager));
+  ctx.inject(["webServer"], (scoped) => registerWebRoutes(scoped, manager));
 }
