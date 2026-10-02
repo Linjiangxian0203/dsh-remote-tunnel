@@ -280,3 +280,35 @@ loaded → service sidebarRight → view conversation.chat.commandview#remote
 3. 点「**启动隧道 / up**」→ 重新拉起(端口可能变化,旧的浏览器面板标签需要重新打开);
 4. 「在侧栏打开」「在浏览器打开」照旧。
 
+
+## 12. 阶段 3a.1 完成 —— composer 状态条(常驻入口,2026-10-02 傍晚)
+
+**解决的坑**:空会话里"看不到 /remote 的结果"。
+会话视图在**没有模型历史**时渲染欢迎页,命令生命周期(command/run|done)不属于模型历史,
+所以那次 /remote 的卡片要等第一轮对话之后才出现 —— 命令其实早就成功执行了。
+
+**做法**:在 **`conversation.composer.dock`**(输入框上方、第一方 StatsPills 同一个座位,
+空会话也渲染)注册一条常驻状态条:
+
+- 有隧道:`● 远程隧道 / remote tunnel  XDU-zc · http://127.0.0.1:3081` +
+  「在侧栏打开」「在浏览器打开」「断开」;
+- 没有隧道:`未连接 / not connected`(或没有主机时 `未配置主机 / no host`)+ 「启动隧道 / up」;
+- 每 15 秒轮询一次 `/remote-tunnel/status`,动作完成后立即刷新;
+- 配置 **`dock: true|false`(默认 true)** 可整条隐藏;
+- 好处:新会话里**零命令**就能开面板;会话再多也不用去历史里翻卡片。
+
+**同批改动**:`/remote-tunnel/status` 的 config 增加 `dock`;row 配置新增 `dock`(默认 true);
+客户端卡片的取状态逻辑抽成 `useTunnelStatus()`,卡片与状态条共用。
+
+**测试**:unit **20/20**(新增第 3 条客户端用例:状态条渲染 + `dock:false` 时整条消失;
+并且修了测试 React 桩的一个真问题 —— 不执行 effect cleanup 会让 setInterval 把测试进程挂住);
+冒烟:status 返回 `{"openIn":"ask","autoOpen":false,"dock":true}`,boot graph 含我们的 bundle,
+服务端返回的 19,980 字节 bundle 内含 `conversation.composer.dock` 与状态条文案。
+
+### 12.1 重启后的验收清单(3a.1)
+1. **新建一个空会话**(不要发任何消息)→ 输入框上方应出现 `● 远程隧道 / remote tunnel  XDU-zc · http://127.0.0.1:3081` +
+   三个按钮;点「在侧栏打开」应能打开远端 dsh web(**这一条就是本次修复的核心**);
+2. 点「断开」→ 状态条变成 `未连接` + 「启动隧道 / up」;再点「启动隧道」→ 恢复;
+3. 把 row 配置加 `dock: false` → 状态条整条消失(阶段 3b 会做成设置页开关);
+4. 卡片(命令节点)行为不变:第一轮对话后出现,状态标签/断开两步确认照旧。
+

@@ -197,40 +197,38 @@ test("resolveMode: webStartup only ever promotes to service", () => {
 // ---- browser half (src/client.js) ------------------------------------------
 // The bundle only ever runs inside the web renderer, so this loads it with a
 // captured module loader, a stubbed React and a fake host, then renders the
-// /remote card twice (before and after the status fetch settles). It is the
-// only automated check that the card keeps both open modes and the disconnect
-// confirmation wiring.
+// /remote card and the composer strip. It is the only automated check that the
+// two open modes, the disconnect step and the dock survive a change.
 
 function loadClientBundle() {
   const source = readFileSync(new URL("../src/client.js", import.meta.url), "utf8");
+  const state = {
+    dock: true,
+    tunnels: [{ alias: "lab", host: "10.0.0.1", remotePort: 3080, url: "http://127.0.0.1:3081", workspace: "/home/lab" }]
+  };
   let captured;
   const window = { __ModuleLoader__: { load: (definition) => { captured = definition; } } };
-  const requests = [];
   const fetchStub = async (url) => {
-    requests.push(String(url));
     const body = String(url).includes("/status")
       ? {
         ok: true,
-        config: { openIn: "ask", autoOpen: false },
+        config: { openIn: "ask", autoOpen: false, dock: state.dock },
         hosts: [{ alias: "lab", host: "10.0.0.1", port: 22 }],
         tunnels: state.tunnels
       }
       : { ok: true, alias: "lab", authUrl: "http://127.0.0.1:3081/?token=t" };
     return { ok: true, status: 200, json: async () => body };
   };
-  const state = { tunnels: [{ alias: "lab", host: "10.0.0.1", remotePort: 3080, url: "http://127.0.0.1:3081", workspace: "/home/lab" }] };
-  const Image = class { set src(_value) { /* beacon is fire and forget */ } };
-  const globalObject = {};
-  new Function("window", "globalThis", "fetch", "Image", "console", "setTimeout", "encodeURIComponent", "Promise", "Date", source)(
-    window, globalObject, fetchStub, Image, console, setTimeout, encodeURIComponent, Promise, Date
-  );
-  return { captured, requests, state, Image, globalObject, fetchStub };
+  const Image = class { set src(_value) { /* the beacon is fire and forget */ } };
+  new Function("window", "globalThis", "fetch", "Image", source)(window, {}, fetchStub, Image);
+  return { captured, state };
 }
 
 function fakeReact() {
-  const cells = [];
+  let cells = [];
   let cursor = 0;
   let effects = [];
+  let cleanups = [];
   return {
     api: {
       createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat() }),
@@ -242,8 +240,24 @@ function fakeReact() {
       useCallback: (fn) => fn,
       useEffect: (fn) => { effects.push(fn); }
     },
+    // Cleanups matter: the dock arms a refresh interval, and a stub that drops
+    // the teardown keeps the whole test process alive forever.
+    reset() {
+      cleanups.forEach((fn) => fn());
+      cleanups = [];
+      cells = [];
+      cursor = 0;
+      effects = [];
+    },
     begin() { cursor = 0; effects = []; },
-    drain() { const pending = effects; effects = []; pending.forEach((fn) => fn()); }
+    drain() {
+      const pending = effects;
+      effects = [];
+      pending.forEach((fn) => {
+        const cleanup = fn();
+        if (typeof cleanup === "function") cleanups.push(cleanup);
+      });
+    }
   };
 }
 
@@ -255,7 +269,19 @@ function collectStrings(value, out = []) {
   return out;
 }
 
-async function renderRemoteCard(load) {
+/** Render twice with the same state cells: once cold, once after the fetch settles. */
+async function renderTwice(react, Component, props) {
+  react.begin();
+  const first = Component(props);
+  react.drain();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  react.begin();
+  const second = Component(props);
+  react.drain();
+  return { first: collectStrings(first).join(" | "), second: collectStrings(second).join(" | ") };
+}
+
+async function mountClient(load) {
   const react = fakeReact();
   const plugin = load.captured.factory((name) => {
     if (name === "react") return react.api;
@@ -275,41 +301,59 @@ async function renderRemoteCard(load) {
   };
   plugin.apply(ctx);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  const entry = registered[0];
-  assert.ok(entry, "the command view must be registered");
-  assert.equal(entry.definition.name, "conversation.chat.commandview");
-  assert.equal(entry.definition.key, "remote");
-  const node = { name: "remote", args: " hosts", outcome: { kind: "success", text: "lab  10.0.0.1:22  [ssh-config]" } };
-  const render = () => {
-    react.begin();
-    const tree = entry.Component({ node });
-    react.drain();
-    return collectStrings(tree).join(" | ");
-  };
-  const before = render();
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  const after = render();
-  return { before, after, opened, ctx };
+  return { react, registered, opened };
 }
 
-test("client bundle: registers the /remote card with both open modes and the disconnect step", async () => {
+const CARD = "conversation.chat.commandview";
+const DOCK = "conversation.composer.dock";
+
+test("client bundle: the /remote card offers both open modes and the disconnect step", async () => {
   const load = loadClientBundle();
   assert.equal(load.captured.id, "dsh-remote-tunnel");
-  const { before, after } = await renderRemoteCard(load);
-  assert.ok(before.includes("在侧栏打开"), before);
-  assert.ok(after.includes("在浏览器打开"), after);
-  assert.ok(after.includes("在侧栏打开"), after);
-  assert.ok(after.includes("完成 / done"), after);
-  assert.ok(after.includes("隧道:lab"), after);
-  assert.ok(after.includes("断开连接 / down"), after);
-  assert.ok(!after.includes("启动隧道 / up"), "a live tunnel must not offer up");
+  const { react, registered } = await mountClient(load);
+  const card = registered.find((item) => item.definition.name === CARD);
+  assert.ok(card, "the command card must be registered");
+  assert.equal(card.definition.key, "remote");
+  react.reset();
+  const node = { name: "remote", args: " hosts", outcome: { kind: "success", text: "lab  10.0.0.1:22  [ssh-config]" } };
+  const { second } = await renderTwice(react, card.Component, { node });
+  assert.ok(second.includes("在浏览器打开"), second);
+  assert.ok(second.includes("在侧栏打开"), second);
+  assert.ok(second.includes("完成 / done"), second);
+  assert.ok(second.includes("隧道:lab"), second);
+  assert.ok(second.includes("断开连接 / down"), second);
+  assert.ok(!second.includes("启动隧道 / up"), "a live tunnel must not offer up");
+  react.reset();
 });
 
 test("client bundle: a stopped tunnel offers up instead of down", async () => {
   const load = loadClientBundle();
   load.state.tunnels = [];
-  const { after } = await renderRemoteCard(load);
-  assert.ok(after.includes("启动隧道 / up"), after);
-  assert.ok(!after.includes("断开连接 / down"), after);
+  const { react, registered } = await mountClient(load);
+  const card = registered.find((item) => item.definition.name === CARD);
+  react.reset();
+  const node = { name: "remote", args: " hosts", outcome: { kind: "success", text: "no tunnel" } };
+  const { second } = await renderTwice(react, card.Component, { node });
+  assert.ok(second.includes("启动隧道 / up"), second);
+  assert.ok(!second.includes("断开连接 / down"), second);
+  react.reset();
 });
 
+test("client bundle: the composer strip carries the actions and honours dock:false", async () => {
+  const load = loadClientBundle();
+  const { react, registered } = await mountClient(load);
+  const dock = registered.find((item) => item.definition.name === DOCK);
+  assert.ok(dock, "the composer dock must be registered");
+  assert.equal(dock.definition.id, "remote-tunnel");
+  react.reset();
+  const live = await renderTwice(react, dock.Component, {});
+  assert.ok(live.second.includes("远程隧道 / remote tunnel"), live.second);
+  assert.ok(live.second.includes("在侧栏打开"), live.second);
+  assert.ok(live.second.includes("断开"), live.second);
+  // dock:false removes the whole strip, even with a live tunnel.
+  load.state.dock = false;
+  react.reset();
+  const hidden = await renderTwice(react, dock.Component, {});
+  assert.equal(hidden.second, "", "dock:false must render nothing");
+  react.reset();
+});

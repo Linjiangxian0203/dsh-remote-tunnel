@@ -17,6 +17,8 @@ window.__ModuleLoader__.load({
     "use strict";
     var ROUTE = "/remote-tunnel/";
     var COMMAND_VIEW = "conversation.chat.commandview";
+    // The strip above the composer: always rendered, in an empty session too.
+    var DOCK = "conversation.composer.dock";
     var React = require("react");
     var h = React.createElement;
 
@@ -135,11 +137,35 @@ window.__ModuleLoader__.load({
         border: "1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.4))"
       },
       muted: { opacity: 0.65, fontSize: "12px" },
-      error: { color: "var(--dsw-alias-label-error, #d4380d)", fontSize: "12px" }
+      error: { color: "var(--dsw-alias-label-error, #d4380d)", fontSize: "12px" },
+      // The always-on strip above the composer: one compact line, the same
+      // visual weight as the stats pills it sits beside.
+      dock: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", fontSize: "12px", color: "inherit", opacity: 0.85 },
+      dockButton: {
+        font: "inherit", fontSize: "11px", padding: "2px 8px", cursor: "pointer",
+        color: "inherit", background: "transparent", borderRadius: "999px",
+        border: "1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.4))"
+      },
+      dockLabel: { display: "inline-flex", alignItems: "center", gap: "6px", fontWeight: 500 }
     };
 
     function hostQuery(alias) {
       return alias === undefined || alias === null || alias === "" ? "" : "&host=" + encodeURIComponent(alias);
+    }
+
+    /** Poll the host for tunnel state; the card and the dock both live on it. */
+    function useTunnelStatus() {
+      var state = React.useState(null);
+      var setStatus = state[1];
+      var refresh = React.useCallback(function () {
+        callHost("status").then(function (value) { setStatus(value); }, function () { /* keep the last good state */ });
+      }, []);
+      React.useEffect(function () {
+        refresh();
+        var timer = setInterval(refresh, 15000);
+        return function () { clearInterval(timer); };
+      }, [refresh]);
+      return { status: state[0], refresh: refresh };
     }
 
     return {
@@ -169,22 +195,17 @@ window.__ModuleLoader__.load({
         function Card(props) {
           var node = props && props.node ? props.node : {};
           var outcome = node.outcome || null;
-          var statusState = React.useState(null);
+          var tunnelState = useTunnelStatus();
+          var status = tunnelState.status;
+          var refresh = tunnelState.refresh;
           var busyState = React.useState("");
           var errorState = React.useState(null);
           var confirmState = React.useState(false);
           var pickState = React.useState(null);
-          var status = statusState[0], setStatus = statusState[1];
           var busy = busyState[0], setBusy = busyState[1];
           var error = errorState[0], setError = errorState[1];
           var confirming = confirmState[0], setConfirming = confirmState[1];
           var picked = pickState[0], setPicked = pickState[1];
-
-          var refresh = React.useCallback(function () {
-            callHost("status").then(function (value) { setStatus(value); setError(null); },
-              function (failure) { setError(textOf(failure)); });
-          }, []);
-          React.useEffect(function () { refresh(); }, [refresh]);
           // The disconnect confirmation expires by itself, so a stray first click
           // can never arm the destructive action indefinitely.
           React.useEffect(function () {
@@ -292,6 +313,71 @@ window.__ModuleLoader__.load({
           return h("div", { style: S.card }, children);
         }
 
+        /**
+         * The strip above the composer.
+         *
+         * It exists because the chat transcript — and therefore the /remote card
+         * — is not rendered at all until the session has model history, so a
+         * fresh conversation would otherwise give no sign that the tunnel is
+         * reachable, and a card buried in history is hard to find again.
+         */
+        function Dock() {
+          var tunnelState = useTunnelStatus();
+          var status = tunnelState.status;
+          var refresh = tunnelState.refresh;
+          var busyState = React.useState("");
+          var errorState = React.useState(null);
+          var busy = busyState[0], setBusy = busyState[1];
+          var error = errorState[0], setError = errorState[1];
+
+          if (status === null) return null;
+          if (status.config && status.config.dock === false) return null;
+
+          var current = status.tunnels && status.tunnels.length > 0 ? status.tunnels[0] : null;
+          var alias = current !== null
+            ? current.alias
+            : (status.hosts && status.hosts.length > 0 ? status.hosts[0].alias : undefined);
+
+          function run(mode, promise) {
+            setBusy(mode);
+            setError(null);
+            promise.then(function () { setBusy(""); refresh(); },
+              function (failure) { setBusy(""); setError(textOf(failure)); });
+          }
+
+          var children = [
+            h("span", { key: "label", style: S.dockLabel },
+              h("span", { style: Object.assign({}, S.dot, { background: current !== null ? TONE.ok : TONE.running }) }),
+              "远程隧道 / remote tunnel"),
+            h("span", { key: "state", style: S.muted },
+              current !== null
+                ? current.alias + " · " + current.url
+                : (alias === undefined ? "未配置主机 / no host" : "未连接 / not connected"))
+          ];
+
+          if (current !== null) {
+            children.push(h("button", {
+              key: "panel", style: S.dockButton, disabled: busy !== "",
+              onClick: function () { run("panel", openPanel(alias)); }
+            }, busy === "panel" ? "打开中…" : "在侧栏打开"));
+            children.push(h("button", {
+              key: "browser", style: S.dockButton, disabled: busy !== "",
+              onClick: function () { run("browser", callHost("open?mode=browser" + hostQuery(alias))); }
+            }, busy === "browser" ? "打开中…" : "在浏览器打开"));
+            children.push(h("button", {
+              key: "down", style: S.dockButton, disabled: busy !== "",
+              onClick: function () { run("down", callHost("down?host=" + encodeURIComponent(alias))); }
+            }, busy === "down" ? "断开中…" : "断开"));
+          } else if (alias !== undefined) {
+            children.push(h("button", {
+              key: "up", style: S.dockButton, disabled: busy !== "",
+              onClick: function () { run("up", callHost("up?host=" + encodeURIComponent(alias))); }
+            }, busy === "up" ? "连接中…" : "启动隧道 / up"));
+          }
+          if (error !== null) children.push(h("span", { key: "error", style: S.error }, error));
+          return h("div", { style: S.dock }, children);
+        }
+
         globalThis.__dshRemoteTunnel = { openPanel: openPanel, callHost: callHost, report: report };
 
         report("loaded");
@@ -310,6 +396,11 @@ window.__ModuleLoader__.load({
               // Reported from inside the registration, so the event means the
               // card is really in the slot table — not merely that we asked.
               report("view", COMMAND_VIEW + "#remote");
+              return disposer;
+            });
+            slots.inject(DOCK, function () {
+              var disposer = slots.register({ name: DOCK, id: "remote-tunnel", order: 10 }, Dock);
+              report("dock", DOCK + "#remote-tunnel");
               return disposer;
             });
           } catch (error) {

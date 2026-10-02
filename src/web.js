@@ -72,7 +72,11 @@ async function handle(manager, services, settings, req, res) {
         return sendJson(res, 200, {
           ok: true,
           services: services ?? null,
-          config: { openIn: settings?.openIn ?? "ask", autoOpen: settings?.autoOpen === true },
+          config: {
+            openIn: settings?.openIn ?? "ask",
+            autoOpen: settings?.autoOpen === true,
+            dock: settings?.dock !== false
+          },
           hosts,
           tunnels: manager.listStatesLocal(),
           client: snapshot()
