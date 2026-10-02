@@ -1,9 +1,12 @@
 import { TunnelError } from "./errors.js";
 
 // dsh-remote-tunnel host half for the browser UI: the HTTP surface the client
-// bundle calls. Routes live under /remote-tunnel/ and ride the same
-// authenticated carrier as the rest of the GUI — the browser half reaches them
-// through the shell origin, so the session cookie is already attached.
+// bundle calls. Routes live under /remote-tunnel/ and ride the same carrier as
+// the rest of the GUI — the browser half reaches them through the shell origin.
+//
+// The desktop renderer talks to us without a cookie observable from outside, so
+// `report` doubles as a black box: the client half records its lifecycle here
+// and `state` exposes it, together with which host services ever mounted.
 
 // NB: the webserver matches a prefix P as `path === P || path.startsWith(P + "/")`,
 // so the registered prefix must not carry a trailing slash.
@@ -15,6 +18,18 @@ const JSON_HEADERS = {
 
 /** Start one `up` per alias; concurrent callers share the same promise. */
 const inFlight = new Map();
+
+/** Client-half lifecycle, filled by /remote-tunnel/report. */
+const clientStatus = { loadedAt: null, openedAt: null, lastError: null, events: [] };
+
+function record(event, detail) {
+  const at = new Date().toISOString();
+  if (event === "loaded") clientStatus.loadedAt = at;
+  if (event === "opened") clientStatus.openedAt = at;
+  if (event === "error") clientStatus.lastError = detail ?? "unknown";
+  clientStatus.events.push({ at, event, detail: detail ?? null });
+  if (clientStatus.events.length > 25) clientStatus.events.shift();
+}
 
 function sendJson(res, status, body) {
   const text = JSON.stringify(body, null, 2);
@@ -29,26 +44,34 @@ function message(error) {
 
 /** Register the /remote-tunnel/ routes. Returns after registering; the
  *  disposer removes every route when the plugin unloads. */
-export function registerWebRoutes(ctx, manager) {
+export function registerWebRoutes(ctx, manager, services) {
   const webServer = ctx.get("webServer");
   if (webServer === undefined) return;
   const dispose = webServer.register({
     kind: "prefix",
     path: PREFIX,
     handler: (req, res) => {
-      void handle(manager, req, res);
+      void handle(manager, services, req, res);
     }
   });
   ctx.effect(() => () => dispose(), "remote-tunnel.web");
 }
 
-async function handle(manager, req, res) {
+async function handle(manager, services, req, res) {
   const url = new URL(req.url ?? PREFIX, "http://127.0.0.1");
   const action = url.pathname.slice(PREFIX.length).replace(/^\/+/, "");
   try {
     switch (action) {
+      case "report":
+        record(url.searchParams.get("event") ?? "unknown", url.searchParams.get("detail"));
+        return sendJson(res, 200, { ok: true });
       case "state":
-        return sendJson(res, 200, { ok: true, tunnels: manager.listStatesLocal() });
+        return sendJson(res, 200, {
+          ok: true,
+          services: services ?? null,
+          client: clientStatus,
+          tunnels: manager.listStatesLocal()
+        });
       case "open": {
         const states = manager.listStatesLocal();
         const wanted = url.searchParams.get("host");

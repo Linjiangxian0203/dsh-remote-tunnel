@@ -65,6 +65,15 @@ function applyService(ctx, home) {
     reporter: { out() {}, err() {}, event() {} }
   });
   ctx.effect(() => () => manager.dispose(), "remote-tunnel.service");
-  ctx.inject(["commands"], (scoped) => registerSlashCommands(scoped, manager));
-  ctx.inject(["webServer"], (scoped) => registerWebRoutes(scoped, manager));
+  // Service readiness is exposed through the state route: a service that never
+  // mounts is otherwise silent, and that silence is worth being able to read.
+  const services = { commands: false, webServer: false, startedAt: new Date().toISOString() };
+  ctx.inject(["commands"], (scoped) => {
+    services.commands = true;
+    registerSlashCommands(scoped, manager);
+  });
+  ctx.inject(["webServer"], (scoped) => {
+    services.webServer = true;
+    registerWebRoutes(scoped, manager, services);
+  });
 }
