@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Remote Tunnel (dsh-remote-tunnel)",
+    "description": "Remote host tunnel manager: allocate a port on the server, run dsh web there via systemd, keep a self-healing SSH tunnel, and open the remote workspace in the sidebar Browser panel."
+  }
+}

@@ -1,4 +1,5 @@
 import { TunnelError } from "./errors.js";
+import { record } from "./probe.js";
 
 // dsh-remote-tunnel service half: registers the `/remote` slash command on
 // the web surface. The handler runs in the host process (where ssh and the
@@ -6,7 +7,7 @@ import { TunnelError } from "./errors.js";
 // CLI uses. The manager is created once by the bundle entry and shared with
 // the browser half's HTTP routes.
 
-const USAGE = "/remote hosts | check <host> | bootstrap <host> [--upgrade] | up <host> [--open] | down [host] | status [host] | audit <host> | open [host]";
+const USAGE = "远程隧道管理 — /remote hosts | check <host> | bootstrap <host> [--upgrade] | up <host> [--open] | down [host] | status [host] | audit <host> | open [host]";
 
 export function registerSlashCommands(ctx, manager) {
   const commands = ctx.get("commands");
@@ -14,10 +15,25 @@ export function registerSlashCommands(ctx, manager) {
 
   commands.register({
     name: "remote",
-    description: "remote host tunnel manager: list/check/up/down/status/audit remote dsh web tunnels",
+    // Bilingual on purpose: the client localizes first-party command copy by
+    // definitionId, while a third-party host command renders verbatim — so this
+    // one row has to read for both audiences.
+    description: "远程隧道管理:主机列表 / 连通性检查 / 启动·停止隧道 · remote host tunnel manager (hosts, check, up, down, status)",
     input: { hint: "hosts | check <host> | bootstrap <host> | up <host> | down | status | audit <host>" },
     handler: async (invocation) => {
-      const tokens = invocation.rawInput.trim().split(/\s+/).filter((t) => t.length > 0);
+      const rawInput = typeof invocation?.rawInput === "string" ? invocation.rawInput.trim() : "";
+      // The GUI swallows a command result it cannot render, so record both the
+      // attempt and the outcome: /remote-tunnel/state is readable from outside.
+      record("command", rawInput.length > 0 ? rawInput : "(empty)");
+      const result = await handleRemoteCommand(rawInput);
+      record(result.kind === "success" ? "command-ok" : "command-error", String(result.text ?? "").slice(0, 200));
+      return result;
+    }
+  });
+
+  async function handleRemoteCommand(rawInput) {
+    {
+      const tokens = rawInput.split(/\s+/).filter((t) => t.length > 0);
       const sub = tokens[0];
       try {
         switch (sub) {
@@ -103,7 +119,7 @@ export function registerSlashCommands(ctx, manager) {
         return { kind: "error", text: message };
       }
     }
-  });
+  }
 }
 
 function requireArg(tokens, index, usage) {

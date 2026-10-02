@@ -24,11 +24,13 @@
     ".": "./src/index.js",
     "./cli": "./src/cli.js",
     "./client": "./src/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "src",
+    "locale",
     "cordis.patch.yml",
     "scripts",
     "docs",
