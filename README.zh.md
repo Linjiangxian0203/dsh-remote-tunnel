@@ -300,6 +300,7 @@ npm test                # 单元测试 + 假 ssh shim 集成测试(无需真实�
 - 插件不保存、不传输任何密码/密钥/API key;SSH 全走现有密钥(BatchMode,拒绝密码提示挂起)
 - 登记表不记录任何敏感信息(见 `docs/registry-format.md` · [English](docs/registry-format.en.md))
 - 远程脚本仅在 `flock` 锁内追加/改写登记表与 systemd 单元,不执行其他写入
+- 桌面/网页端的 `/remote-tunnel/*` 路由走运行时自己的准入检查(`ctx.connection.admit()`:与 `/api` 同一套 Host/Origin 栅栏 + 浏览器会话 cookie 校验),未通过返回 401/403 —— 因为这类路由会下发**携带一次性 launch token 的 URL**;确实无法携带 cookie 的载体可用 `auth: false` 显式关闭(不推荐)
 
 ## 非目标
 

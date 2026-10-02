@@ -9,6 +9,7 @@ import { renderUnitBody } from "../src/remote/unit.js";
 import { readBootstrapScript, BOOTSTRAP_MARKER } from "../src/remote/bootstrap.js";
 import { parseNetstatListening, parseTasklistCsv, parseLsofListening } from "../src/local/ports.js";
 import { resolveMode } from "../src/index.js";
+import { authRejection } from "../src/web.js";
 
 test("parsePort: passes through valid ports and absent options", () => {
   assert.equal(parsePort("22", "--port"), 22);
@@ -356,4 +357,18 @@ test("client bundle: the composer strip carries the actions and honours dock:fal
   const hidden = await renderTwice(react, dock.Component, {});
   assert.equal(hidden.second, "", "dock:false must render nothing");
   react.reset();
+});
+// ---- route admission (src/web.js) -------------------------------------------
+// /remote-tunnel/* hands out a URL carrying a one-time launch token, so it must
+// go through the platform's own fence + browser-session check.
+
+test("authRejection: mirrors connection.admit() and honours auth:false", () => {
+  const unauthenticated = { admit: () => ({ rejection: 401 }) };
+  const untrusted = { admit: () => ({ rejection: 403 }) };
+  const admitted = { admit: () => ({ peer: { id: "operator" } }) };
+  assert.equal(authRejection(unauthenticated, { auth: true }, {}), 401);
+  assert.equal(authRejection(untrusted, { auth: true }, {}), 403);
+  assert.equal(authRejection(admitted, { auth: true }, {}), undefined);
+  assert.equal(authRejection(unauthenticated, { auth: false }, {}), undefined, "the escape hatch must bypass the check");
+  assert.equal(authRejection(undefined, { auth: true }, {}), undefined, "no connection service = no check available");
 });

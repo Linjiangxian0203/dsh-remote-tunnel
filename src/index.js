@@ -42,7 +42,8 @@ export const Config = Schema.object({
   home: Schema.string(),
   openIn: Schema.string(),
   autoOpen: Schema.boolean(),
-  dock: Schema.boolean()
+  dock: Schema.boolean(),
+  auth: Schema.boolean()
 });
 
 const OPEN_MODES = new Set(["ask", "browser", "panel"]);
@@ -52,7 +53,11 @@ export function readSettings(config) {
   return {
     openIn: typeof config?.openIn === "string" && OPEN_MODES.has(config.openIn) ? config.openIn : "ask",
     autoOpen: config?.autoOpen === true,
-    dock: config?.dock !== false
+    dock: config?.dock !== false,
+    // Require the GUI's own browser session on every /remote-tunnel/* request
+    // (the desktop shell and the web page both carry it). Set false only to
+    // debug a carrier that cannot present a cookie.
+    auth: config?.auth !== false
   };
 }
 
@@ -122,4 +127,7 @@ function applyService(ctx, home, settings) {
     services.webServer = true;
     registerWebRoutes(scoped, manager, services, settings);
   });
+  // Registering through a webServer-scoped context keeps the routes alive even
+  // when a composition has no Connection service; `authRejection` then reports
+  // "no check available" instead of failing closed on a missing dependency.
 }

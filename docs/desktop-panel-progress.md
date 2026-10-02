@@ -373,3 +373,35 @@ children: [ variant === "composer" && input !== void 0 && sessionId !== void 0
 顺带记录:配置表单要去 **设置(左下角齿轮)→ 插件** 看,不是「插件」页的清单卡片;
 我们的 Config 已通过运行时的原生 schema 检查(brand/type/meta 三项),应当会生成表单。
 
+
+## 15. 阶段 3e 完成 —— 路由准入校验(2026-10-02 傍晚)
+
+**问题**:之前 `/remote-tunnel/*` 不校验来源,loopback 上任何本地进程 `GET /remote-tunnel/status`
+就能读到**带一次性 launch token 的 URL**(实测:无 cookie 也返回 200)。
+
+**做法**:用运行时自己的准入入口 `ctx.connection.admit(request)` —— 与 `/api` 通道**同一套**检查:
+
+```js
+const admission = connection.admit(req);            // { rejection: 401|403 } | { peer }
+if ("rejection" in admission) { res.writeHead(admission.rejection); res.end(); return; }
+```
+
+- `requestRejection()` = `isTrustedApiRequest()`(Host 必须 loopback/trusted、Origin 必须等于 Host、
+  `sec-fetch-site: cross-site` 直接 403)+ `browserAuth.isAuthenticated()`(签名 cookie 校验)→ 403 / 401;
+- Connection 服务可能晚于本行挂载,所以**按请求惰性解析**(注册时抓一次会永远拿不到);
+- 新增配置 `auth`(默认 true):确实无法携带 cookie 的载体可以 `auth: false` 关闭(逃生门,README 标注不推荐);
+- 被拒请求会记进黑匣子(`rejected 401 status`),排查「面板打不开」时直接看。
+
+**实测**(隔离 web profile,两次启动对照):
+
+| 配置 | 匿名 `/remote-tunnel/status` | 带 GUI cookie |
+|---|---|---|
+| 默认(`auth` 未设 → true) | **401** | **200**(config/tunnels 正常) |
+| `auth: false` | 200(逃生门生效) | 200 |
+
+**重启后要验的**:卡片、状态条、面板三条路径都必须照常工作(它们从页面上下文发起、由桌面壳转发并注入 cookie,
+预期能通过 `admit`)。若某条路径报 401:把 row 配置里 `auth` 设成 `false` 可临时恢复,
+并把现象告诉我(说明该载体的转发没带 cookie,我再改成「短时一次性句柄」方案)。
+
+**附带**:3a 验收时点过「断开连接 / down」,本地隧道状态已清空、3081 已释放(预期行为);
+下次要用面板时,在卡片或状态条上点「启动隧道 / up」即可(端口可能变化)。
