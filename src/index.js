@@ -52,7 +52,8 @@ export function apply(ctx, config) {
       // How a tunnel should be opened, and whether the panel opens by itself at
       // startup. Both become editable in 设置 → 插件 once the Config schema lands.
       openIn: typeof config?.openIn === "string" ? config.openIn : "ask",
-      autoOpen: config?.autoOpen === true
+      autoOpen: config?.autoOpen === true,
+      dock: config?.dock !== false
     });
     return;
   }
