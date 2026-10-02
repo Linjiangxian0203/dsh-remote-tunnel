@@ -1,7 +1,9 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
+import Schema from "@deepseek-ai/schemastery";
 import { runCli } from "./cli.js";
 import { TunnelManager } from "./manager.js";
+import { record } from "./probe.js";
 import { registerSlashCommands } from "./service.js";
 import { registerWebRoutes } from "./web.js";
 
@@ -17,6 +19,42 @@ export const inject = ["cmdlineArgs"];
 
 /** Profiles that host a long-lived dsh UI: they own the command line. */
 const SERVICE_PROFILES = new Set(["web", "desktop"]);
+
+/**
+ * Row configuration — the `config:` block of this plugin's loader row.
+ *
+ * Cordis validates that block through this schema before `apply` runs, and the
+ * harness derives the Plugins page's form from the same schema.
+ *
+ * Every field is a PLAIN type on purpose. On dsh 0.2.0-rc.2 a `.default(...)`
+ * here makes the merged row config arrive as unresolved schema objects instead
+ * of the configured values — verified by booting an isolated profile with
+ * `openIn: panel` in its patch layer and reading the raw config back:
+ *
+ *   with .default(): {"openIn":{},"autoOpen":{},"dock":{}}   // merged values lost
+ *   plain types    : {"openIn":"panel","autoOpen":true,"dock":false}
+ *
+ * So defaults live in `readSettings()` below, and the shipped row patch writes
+ * every key explicitly. Operational data (hosts, port ranges, registry, unit)
+ * is not row config — it lives in `$DSH_HOME/remote-tunnel/config.yaml`.
+ */
+export const Config = Schema.object({
+  home: Schema.string(),
+  openIn: Schema.string(),
+  autoOpen: Schema.boolean(),
+  dock: Schema.boolean()
+});
+
+const OPEN_MODES = new Set(["ask", "browser", "panel"]);
+
+/** Resolve the row config into the settings this half acts on. */
+export function readSettings(config) {
+  return {
+    openIn: typeof config?.openIn === "string" && OPEN_MODES.has(config.openIn) ? config.openIn : "ask",
+    autoOpen: config?.autoOpen === true,
+    dock: config?.dock !== false
+  };
+}
 
 /** $DSH_HOME/remote-tunnel fallback when the row config is absent. */
 export function defaultHome() {
@@ -43,18 +81,17 @@ export function resolveMode(ctx) {
 }
 
 export function apply(ctx, config) {
+  // Raw row config, as cordis hands it over (after schema validation).
+  record("row-config", JSON.stringify(config ?? null));
   const home = typeof config?.home === "string" && config.home.length > 0 ? config.home : defaultHome();
   // cmdlineArgs is injected, so it is mounted before this runs: freeze the argv
   // snapshot the CLI half parses. Service mode never reads it.
   ctx.get("cmdlineArgs").get();
   if (resolveMode(ctx) === "service") {
-    applyService(ctx, home, {
-      // How a tunnel should be opened, and whether the panel opens by itself at
-      // startup. Both become editable in 设置 → 插件 once the Config schema lands.
-      openIn: typeof config?.openIn === "string" ? config.openIn : "ask",
-      autoOpen: config?.autoOpen === true,
-      dock: config?.dock !== false
-    });
+    // How a tunnel should be opened, whether the panel opens by itself, and
+    // whether the composer strip shows: all three are row config, editable on
+    // the Plugins page (设置 → 插件).
+    applyService(ctx, home, readSettings(config));
     return;
   }
   runCli(ctx, home);
@@ -74,6 +111,9 @@ function applyService(ctx, home, settings) {
   // Service readiness is exposed through the state route: a service that never
   // mounts is otherwise silent, and that silence is worth being able to read.
   const services = { commands: false, webServer: false, startedAt: new Date().toISOString() };
+  // The resolved row config is worth being able to read back: a profile patch
+  // that silently fails to reach this row looks exactly like "settings ignored".
+  record("config", JSON.stringify({ home, openIn: settings.openIn, autoOpen: settings.autoOpen, dock: settings.dock }));
   ctx.inject(["commands"], (scoped) => {
     services.commands = true;
     registerSlashCommands(scoped, manager);

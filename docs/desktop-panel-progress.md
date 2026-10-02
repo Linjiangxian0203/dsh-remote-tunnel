@@ -312,3 +312,41 @@ loaded → service sidebarRight → view conversation.chat.commandview#remote
 3. 把 row 配置加 `dock: false` → 状态条整条消失(阶段 3b 会做成设置页开关);
 4. 卡片(命令节点)行为不变:第一轮对话后出现,状态标签/断开两步确认照旧。
 
+
+## 13. 阶段 3b 完成 —— 配置进「设置 → 插件」(2026-10-02 傍晚)
+
+**交付**:插件导出 schemastery `Config`,四个字段成为 row 配置,可在「设置 → 插件」里编辑:
+
+| 字段 | 默认 | 含义 |
+|---|---|---|
+| `home` | `$DSH_HOME/remote-tunnel` | 插件状态目录(隧道状态/日志/config.yaml) |
+| `openIn` | `ask` | 打开方式偏好:ask / browser / panel |
+| `autoOpen` | `false` | 启动时是否自动把远端 dsh web 开进侧栏 |
+| `dock` | `true` | 是否显示输入框上方的「远程隧道」状态条 |
+
+同时:插件自带的 row patch **显式写出全部四个键**(profile 层只能覆盖 row 里已有的键);
+默认值改由 `readSettings()` 在代码里兜底。
+
+### 13.1 ⚠️ 重要发现:schema 里用 `.default()` 会让 row 配置丢失
+
+在 dsh 0.2.0-rc.2 上实测(隔离 profile,profile patch 写 `openIn: panel`、`dock: false`):
+
+| Config schema 写法 | `apply` 实际收到的 row 配置 |
+|---|---|
+| 每个字段带 `.default(...)` | `{"home":"…","openIn":{},"autoOpen":{},"dock":{}}` ← **配置值变成未解析的 schema 对象** |
+| 纯类型(无 default) | `{"home":"…","openIn":"panel","autoOpen":true,"dock":false}` ✅ |
+
+所以本插件**刻意不用 `.default()`**,默认值放在代码里 —— 代码里有注释说明原因,免得以后有人"顺手补上默认值"又把它弄坏。
+(诊断入口:`/remote-tunnel/status` 的 `client.events` 里有每次启动的 `row-config` 原文,排查"设置不生效"时直接读它。)
+
+### 13.2 3b 验收清单(需要看 GUI)
+1. **设置 → 插件** 里找到 `dsh-remote-tunnel`(远程隧道),展开看是否有这四个字段的表单;
+2. 改 `dock` 为 false → 保存 → 输入框上方的状态条应消失(可能要重启,取决于该表单是"立即生效"还是"重挂载");
+3. 改 `openIn` / `autoOpen` 同理;
+4. 若表单**没有出现**:可能是该版本的设置页只为部分字段(如 `.volatile()` 标记的)生成表单,告诉我,我再按运行时的表单规则调整;
+5. 命令行侧自查(不需要 GUI):
+   ```powershell
+   (Invoke-RestMethod http://127.0.0.1:19387/remote-tunnel/status).client.events | Where-Object event -eq 'row-config'
+   ```
+   应能看到当前生效的 row 配置原文。
+

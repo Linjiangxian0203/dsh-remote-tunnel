@@ -51,10 +51,12 @@
     "js-yaml": "^4.2.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-cmdline": "^0.1.2-alpha.3 || ^0.1.7-rc.1 || ^0.2.0-rc.2"
+    "@deepseek-ai/dsh-cmdline": "^0.1.2-alpha.3 || ^0.1.7-rc.1 || ^0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.2"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-cmdline": "^0.1.2-alpha.3"
+    "@deepseek-ai/dsh-cmdline": "^0.1.2-alpha.3",
+    "@deepseek-ai/schemastery": "^3.18.2"
   },
   "scripts": {
     "test": "node --test test/unit.test.js test/integration.test.js"

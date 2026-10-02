@@ -16,5 +16,11 @@
     - id: remote-tunnel
       name: 'dsh-remote-tunnel'
       inject: [cmdlineArgs]
+      # Every field the Config schema declares is spelled out here: a profile
+      # patch can only override keys the row already carries, so the defaults
+      # have to exist in the row itself for 设置 → 插件 to be able to change them.
       config:
         home: !!js dshHomePath('remote-tunnel')
+        openIn: ask
+        autoOpen: false
+        dock: true
