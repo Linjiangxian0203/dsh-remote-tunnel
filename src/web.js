@@ -7,7 +7,7 @@ import { record, snapshot } from "./probe.js";
 //
 // The desktop renderer talks to us without a cookie observable from outside, so
 // `report` doubles as a black box: the client half records its lifecycle here
-// and `state` exposes it, together with which host services ever mounted.
+// and `status` exposes it, together with which host services ever mounted.
 
 // NB: the webserver matches a prefix P as `path === P || path.startsWith(P + "/")`,
 // so the registered prefix must not carry a trailing slash.
@@ -31,22 +31,29 @@ function message(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Resolve the tunnel this request is about: ?host=<alias>, else the only one. */
+function pickTunnel(manager, wanted) {
+  const states = manager.listStatesLocal();
+  if (wanted === null || wanted === undefined || wanted.length === 0) return states[0];
+  return states.find((state) => state.alias === wanted);
+}
+
 /** Register the /remote-tunnel/ routes. Returns after registering; the
  *  disposer removes every route when the plugin unloads. */
-export function registerWebRoutes(ctx, manager, services) {
+export function registerWebRoutes(ctx, manager, services, settings) {
   const webServer = ctx.get("webServer");
   if (webServer === undefined) return;
   const dispose = webServer.register({
     kind: "prefix",
     path: PREFIX,
     handler: (req, res) => {
-      void handle(manager, services, req, res);
+      void handle(manager, services, settings, req, res);
     }
   });
   ctx.effect(() => () => dispose(), "remote-tunnel.web");
 }
 
-async function handle(manager, services, req, res) {
+async function handle(manager, services, settings, req, res) {
   const url = new URL(req.url ?? PREFIX, "http://127.0.0.1");
   const action = url.pathname.slice(PREFIX.length).replace(/^\/+/, "");
   try {
@@ -55,28 +62,41 @@ async function handle(manager, services, req, res) {
         record(url.searchParams.get("event") ?? "unknown", url.searchParams.get("detail"));
         return sendJson(res, 200, { ok: true });
       case "state":
+      case "status": {
+        let hosts = [];
+        try {
+          hosts = manager.listHosts();
+        } catch (error) {
+          hosts = [];
+        }
         return sendJson(res, 200, {
           ok: true,
           services: services ?? null,
-          client: snapshot(),
-          tunnels: manager.listStatesLocal()
+          config: { openIn: settings?.openIn ?? "ask", autoOpen: settings?.autoOpen === true },
+          hosts,
+          tunnels: manager.listStatesLocal(),
+          client: snapshot()
         });
+      }
       case "open": {
-        const states = manager.listStatesLocal();
-        const wanted = url.searchParams.get("host");
-        const state = wanted !== null && wanted.length > 0
-          ? states.find((s) => s.alias === wanted)
-          : states[0];
+        const state = pickTunnel(manager, url.searchParams.get("host"));
         if (state === undefined) {
           return sendJson(res, 409, {
             ok: false,
-            error: wanted !== null && wanted.length > 0 ? `no tunnel for "${wanted}"` : "no tunnel is up",
+            error: "no tunnel is up",
             hint: "start one with /remote up <host> (or GET /remote-tunnel/up?host=<alias>)"
           });
+        }
+        const mode = url.searchParams.get("mode") ?? settings?.openIn ?? "ask";
+        if (mode === "browser") {
+          // The host owns the window system: this is the same opener the CLI uses.
+          manager.open(state.alias, state.authUrl ?? undefined);
+          return sendJson(res, 200, { ok: true, alias: state.alias, mode: "browser", url: state.url });
         }
         return sendJson(res, 200, {
           ok: true,
           alias: state.alias,
+          mode,
           url: state.url,
           authUrl: state.authUrl ?? state.url,
           remotePort: state.remotePort

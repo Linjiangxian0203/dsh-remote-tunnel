@@ -194,3 +194,29 @@ node test/unit.test.js
 $env:TEMP='G:\remote_ssh_dsh\_tmp'; $env:TMP=$env:TEMP; node test/integration.test.js
 ```
 
+
+## 8. 阶段 2c 完成(2026-10-02 傍晚,提交见 git log)
+
+- **命令卡片**:客户端半注册 `conversation.chat.commandview`(key = `remote`),
+  每个 `/remote ...` 的命令节点都渲染成我们的卡片:命令与参数 / 结果文本 /
+  隧道状态 / 「在浏览器打开」「在侧栏打开」「启动隧道」「刷新」四个动作。
+  通用卡片 `GenericCommandCard` 只会显示一行摘要,而且单行文本连展开体都没有 ——
+  这就是此前"命令没有输出"的观感来源(结果其实早就写进 session log 了)。
+- **双模式**:`open?mode=browser` 由宿主 `manager.open()` 打开系统浏览器(和 CLI 同一条路);
+  `open?mode=panel` 返回 authUrl,客户端 `ctx.sidebarRight.openTab("browser", {params:{url}})`。
+- **配置**:row 配置新增 `openIn`(ask|browser|panel,默认 ask)与 `autoOpen`(默认 false)。
+  **默认不再开机自动弹面板**;想恢复就在 profile 的 cordis.patch.yml 里给 row 加 `autoOpen: true`
+  (阶段 3 会做成「设置 → 插件」里的可视化开关)。
+- **路由**:新增 `/remote-tunnel/status`(config + hosts + tunnels + 客户端黑匣子);
+  `open` 支持 `mode`;`state` 保留为 status 的别名。
+- 实测(隔离 DSH_HOME 的 web profile):status 返回 config/hosts/tunnels;
+  `open?mode=panel` 返回 authUrl;boot graph 含 `dsh-remote-tunnel/client.js`,
+  服务端返回的 bundle 里能看到 commandview 注册与中文按钮。
+
+### 8.1 重启后的验收清单(2c)
+1. 插件页:标题仍是「远程隧道 (dsh-remote-tunnel)」;
+2. 启动后**不再自动弹面板**(默认 autoOpen=false);
+3. 发 `/remote hosts` → 对话里出现**卡片**(命令 + 结果文本 + 隧道状态 + 四个按钮);
+4. 点「在侧栏打开」→ 右侧栏出现远端 dsh web;点「在浏览器打开」→ 系统浏览器打开同一 URL;
+5. 面板里发「执行 hostname 命令,把原始输出返回给我」→ `being-Super-Server`(V4)。
+

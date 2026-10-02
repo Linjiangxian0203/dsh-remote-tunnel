@@ -48,7 +48,12 @@ export function apply(ctx, config) {
   // snapshot the CLI half parses. Service mode never reads it.
   ctx.get("cmdlineArgs").get();
   if (resolveMode(ctx) === "service") {
-    applyService(ctx, home);
+    applyService(ctx, home, {
+      // How a tunnel should be opened, and whether the panel opens by itself at
+      // startup. Both become editable in 设置 → 插件 once the Config schema lands.
+      openIn: typeof config?.openIn === "string" ? config.openIn : "ask",
+      autoOpen: config?.autoOpen === true
+    });
     return;
   }
   runCli(ctx, home);
@@ -59,7 +64,7 @@ export function apply(ctx, config) {
  * the browser half's HTTP routes. `ctx.inject` waits for each service instead
  * of racing the rows that provide it (rows mount concurrently).
  */
-function applyService(ctx, home) {
+function applyService(ctx, home, settings) {
   const manager = new TunnelManager({
     home,
     reporter: { out() {}, err() {}, event() {} }
@@ -74,6 +79,6 @@ function applyService(ctx, home) {
   });
   ctx.inject(["webServer"], (scoped) => {
     services.webServer = true;
-    registerWebRoutes(scoped, manager, services);
+    registerWebRoutes(scoped, manager, services, settings);
   });
 }
