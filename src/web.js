@@ -1,4 +1,5 @@
 import { TunnelError } from "./errors.js";
+import { record, snapshot } from "./probe.js";
 
 // dsh-remote-tunnel host half for the browser UI: the HTTP surface the client
 // bundle calls. Routes live under /remote-tunnel/ and ride the same carrier as
@@ -18,18 +19,6 @@ const JSON_HEADERS = {
 
 /** Start one `up` per alias; concurrent callers share the same promise. */
 const inFlight = new Map();
-
-/** Client-half lifecycle, filled by /remote-tunnel/report. */
-const clientStatus = { loadedAt: null, openedAt: null, lastError: null, events: [] };
-
-function record(event, detail) {
-  const at = new Date().toISOString();
-  if (event === "loaded") clientStatus.loadedAt = at;
-  if (event === "opened") clientStatus.openedAt = at;
-  if (event === "error") clientStatus.lastError = detail ?? "unknown";
-  clientStatus.events.push({ at, event, detail: detail ?? null });
-  if (clientStatus.events.length > 25) clientStatus.events.shift();
-}
 
 function sendJson(res, status, body) {
   const text = JSON.stringify(body, null, 2);
@@ -69,7 +58,7 @@ async function handle(manager, services, req, res) {
         return sendJson(res, 200, {
           ok: true,
           services: services ?? null,
-          client: clientStatus,
+          client: snapshot(),
           tunnels: manager.listStatesLocal()
         });
       case "open": {

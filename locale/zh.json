@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "远程隧道 (dsh-remote-tunnel)",
+    "description": "远程主机隧道管理:在服务器上分配端口并用 systemd 跑 dsh web,维持可自愈的 SSH 隧道,并把远端工作区开进侧边栏「浏览器」面板。"
+  }
+}
