@@ -51,14 +51,55 @@ window.__ModuleLoader__.load({
       return body;
     }
 
-    /** Client services mount independently of this bundle; wait instead of racing. */
-    async function waitFor(ctx, name, attempts) {
-      for (var i = 0; i < (attempts === undefined ? 20 : attempts); i += 1) {
-        var service = ctx[name];
-        if (service !== undefined && service !== null) return service;
-        await new Promise(function (resolve) { setTimeout(resolve, 500); });
+    /**
+     * Run `callback(service, owner)` once a client service is mounted.
+     *
+     * Two traps live here: the row mounts concurrently with the services it
+     * needs, and reading an unmounted service off the context *throws*
+     * ("cannot get property … without inject") instead of returning undefined —
+     * so a naive poll rejects on its first try. `ctx.inject` is the race-free
+     * path; polling with a caught throw is the fallback.
+     */
+    function whenService(ctx, name, callback) {
+      var delivered = false;
+      function deliver(service, owner) {
+        if (delivered) return;
+        delivered = true;
+        callback(service, owner);
       }
-      throw new Error("service '" + name + "' never mounted");
+      // Polling fallback: runs even when ctx.inject is missing or never fires.
+      (function poll(attempt) {
+        if (delivered) return;
+        var service;
+        try {
+          service = ctx[name];
+        } catch (error) {
+          service = undefined;
+        }
+        if (service !== undefined && service !== null) {
+          deliver(service, ctx);
+          return;
+        }
+        if (attempt >= 40) {
+          report("error", "service '" + name + "' never mounted");
+          return;
+        }
+        setTimeout(function () { poll(attempt + 1); }, 500);
+      })(0);
+      // Race-free path: cordis waits for the dependency itself.
+      if (typeof ctx.inject === "function") {
+        try {
+          ctx.inject([name], function (scoped) {
+            var service;
+            try {
+              service = scoped[name];
+            } catch (error) {
+              service = undefined;
+            }
+            if (service !== undefined && service !== null) deliver(service, scoped);
+          });
+        } catch (error) { /* the poll above covers this */ }
+      }
     }
 
     var S = {
@@ -87,8 +128,15 @@ window.__ModuleLoader__.load({
     return {
       name: "remote-tunnel",
       apply: function (ctx) {
+        var sidebarService = null;
+
         function sidebar() {
-          return ctx.sidebarRight;
+          if (sidebarService !== null) return sidebarService;
+          try {
+            return ctx.sidebarRight;
+          } catch (error) {
+            return undefined;
+          }
         }
 
         async function openPanel(host) {
@@ -178,15 +226,25 @@ window.__ModuleLoader__.load({
 
         report("loaded");
 
+        whenService(ctx, "sidebarRight", function (service) {
+          sidebarService = service;
+          report("service", "sidebarRight");
+        });
+
         // The chat dispatches this child slot with entryKey = command name, so
         // every /remote node gets our card instead of the generic one.
-        waitFor(ctx, "slots").then(function (slots) {
-          slots.inject(COMMAND_VIEW, function () {
-            return slots.register({ name: COMMAND_VIEW, key: "remote" }, Card);
-          });
-          report("view", COMMAND_VIEW + "#remote");
-        }, function (failure) {
-          report("error", "slots: " + textOf(failure));
+        whenService(ctx, "slots", function (slots) {
+          try {
+            slots.inject(COMMAND_VIEW, function () {
+              var disposer = slots.register({ name: COMMAND_VIEW, key: "remote" }, Card);
+              // Reported from inside the registration, so the event means the
+              // card is really in the slot table — not merely that we asked.
+              report("view", COMMAND_VIEW + "#remote");
+              return disposer;
+            });
+          } catch (error) {
+            report("error", "view: " + textOf(error));
+          }
         });
 
         // Auto-open is off unless the plugin config asks for it: the card's
