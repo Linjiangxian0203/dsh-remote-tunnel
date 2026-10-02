@@ -1,30 +1,16 @@
-import { TunnelManager } from "./manager.js";
 import { TunnelError } from "./errors.js";
 
 // dsh-remote-tunnel service half: registers the `/remote` slash command on
 // the web surface. The handler runs in the host process (where ssh and the
 // tunnel supervisor live), so the web panel can drive the same manager the
-// CLI uses.
+// CLI uses. The manager is created once by the bundle entry and shared with
+// the browser half's HTTP routes.
 
 const USAGE = "/remote hosts | check <host> | bootstrap <host> [--upgrade] | up <host> [--open] | down [host] | status [host] | audit <host> | open [host]";
 
-export function registerSlashCommands(ctx, home) {
+export function registerSlashCommands(ctx, manager) {
   const commands = ctx.get("commands");
-  if (commands === undefined) {
-    // Never fail silently: on an unknown host the /remote commands simply do
-    // not exist, and that is worth one line in the log.
-    const profileName = ctx.get("profileContext")?.name ?? "unknown";
-    ctx.logger?.warn?.(`remote-tunnel: the 'commands' service is not mounted in profile "${profileName}" — /remote slash commands stay unavailable (tunnel manager itself is unaffected)`);
-    return;
-  }
-
-  const manager = new TunnelManager({
-    home,
-    reporter: { out() {}, err() {}, event() {} }
-  });
-  ctx.effect(() => {
-    return () => manager.dispose();
-  }, "remote-tunnel.service");
+  if (commands === undefined) return;
 
   commands.register({
     name: "remote",

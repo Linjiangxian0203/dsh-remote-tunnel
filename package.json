@@ -23,6 +23,7 @@
   "exports": {
     ".": "./src/index.js",
     "./cli": "./src/cli.js",
+    "./client": "./src/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -38,6 +39,9 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
     }
   },
   "dependencies": {
