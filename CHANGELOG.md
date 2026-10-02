@@ -6,6 +6,45 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+## [0.2.0]
+
+First release that supports the DSH **desktop app**, and the first one built for the 0.2.0 runtime line.
+
+### Added
+- **Desktop panel**: the remote dsh web opens inside the desktop app's right sidebar Browser tab
+  (`ctx.sidebarRight.openTab("browser", …)`), driven by a hand-written client bundle
+  (`src/client.js`, `window.__ModuleLoader__.load`) that needs no build step — npm, GitHub and
+  local-directory installs all ship the same file.
+- **Two ways to open**: "Open in sidebar" and "Open in browser" (the host runs the same opener the
+  CLI uses). `openIn` (ask | browser | panel) picks the default.
+- **Command card**: every `/remote …` command node renders a card with the command's output,
+  the tunnel state, and the actions — open in sidebar / open in browser / start tunnel (up) /
+  disconnect (down, two-step confirmation) / refresh. The client localizes only first-party command
+  copy, so the command row and the card ship bilingual text.
+- **Composer status strip** (`dock`, on by default): one line of tunnel state with the same
+  actions, so the tunnel is reachable without digging through conversation history.
+- **Host routes** `GET /remote-tunnel/{status,open,up,down}`. Every request goes through
+  `ctx.connection.admit()` — the same Host/Origin fence and browser-session cookie the `/api`
+  channel uses — and answers 401/403 otherwise, because these routes hand out a URL carrying a
+  one-time launch token. `auth: false` opts out for a carrier that cannot present a cookie.
+- **Localization**: `locale/en.json` + `locale/zh.json` (`meta.title` / `meta.description`),
+  so the plugin card follows the UI language (中文界面显示「远程隧道 (dsh-remote-tunnel)」).
+- **Row configuration** (`home`, `openIn`, `autoOpen`, `dock`, `auth`), editable on the
+  Plugins page, with the defaults resolved in code.
+
+### Changed
+- Mode detection no longer guesses from the neighbouring `webStartup` service: `profileContext.name`
+  (web/desktop) decides. This removes a startup race in which a wrong guess sent the row down the CLI
+  branch, where `program.help()` → `appExit(0)` **terminated the whole desktop/web host process**.
+- Peer range widened to `^0.1.2-alpha.3 || ^0.1.7-rc.1 || ^0.2.0-rc.2` so one package serves both
+  runtime lines.
+- The service half creates a single `TunnelManager` shared by the `/remote` command and the HTTP routes.
+
+### Fixed
+- A `Config` schema must not carry `.default(...)`: on dsh 0.2.0-rc.2 that made the merged row
+  config arrive as unresolved schema objects (`{}`), silently dropping every configured value.
+  The schema now declares plain types and the defaults live in `readSettings()`.
+
 ## [0.1.12]
 
 ### Fixed
