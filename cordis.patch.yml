@@ -1,9 +1,11 @@
 # dsh-remote-tunnel bundle patch: one row inserted over the composed profile.
 #
-# The row owns the command line ONLY on profiles where the web app does not
-# (detected at apply time: the launcher's argv names the `web` profile, or the
-# web app's `webStartup` service is already mounted). On the web profile it
-# stays in service mode and registers the `/remote` slash commands.
+# The row owns the command line ONLY on profiles where the web app does not.
+# The mode is chosen at apply time from `profileContext.name` (web/desktop ⇒
+# service mode), which the profile boot provides before any row mounts; the
+# web app's `webStartup` service is only a fallback, because rows initialise
+# concurrently and a wrong guess would let this row call appExit() on the host.
+# On web/desktop it stays in service mode and registers `/remote` commands.
 #
 # Install on a dedicated CLI profile:
 #   dsh plugin --profile remote add dsh-remote-tunnel

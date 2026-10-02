@@ -7,6 +7,7 @@ import { parsePort, parseIntArg } from "../src/cli-args.js";
 import { renderUnitBody } from "../src/remote/unit.js";
 import { readBootstrapScript, BOOTSTRAP_MARKER } from "../src/remote/bootstrap.js";
 import { parseNetstatListening, parseTasklistCsv, parseLsofListening } from "../src/local/ports.js";
+import { resolveMode } from "../src/index.js";
 
 test("parsePort: passes through valid ports and absent options", () => {
   assert.equal(parsePort("22", "--port"), 22);
@@ -162,4 +163,32 @@ test("bootstrap script: shim marker, idempotent install, upgrade + PATH branches
   assert.ok(script.includes(".npm-global/bin:$PATH"), "PATH rc persistence must be present");
   assert.ok(script.includes("loginctl enable-linger"), "linger must be enabled");
   assert.ok(!script.includes("it does NOT install"), "stale note removed");
+});
+
+// ---- mode detection (docs/desktop-web-refactor-route.md P0-1) ---------------
+// A wrong guess here used to send the row down the CLI branch, where
+// program.help() calls appExit(0) and kills the whole web/desktop host.
+
+function fakeCtx({ profile, webStartup } = {}) {
+  const services = new Map();
+  if (profile !== undefined) services.set("profileContext", { name: profile });
+  if (webStartup !== undefined) services.set("webStartup", webStartup);
+  return { get: (name) => services.get(name) };
+}
+
+test("resolveMode: web and desktop hosts are service before webStartup mounts", () => {
+  assert.equal(resolveMode(fakeCtx({ profile: "web" })), "service");
+  assert.equal(resolveMode(fakeCtx({ profile: "desktop" })), "service");
+});
+
+test("resolveMode: dedicated launcher profiles stay CLI", () => {
+  assert.equal(resolveMode(fakeCtx({ profile: "remote" })), "cli");
+  assert.equal(resolveMode(fakeCtx({ profile: "headless" })), "cli");
+});
+
+test("resolveMode: webStartup only ever promotes to service", () => {
+  assert.equal(resolveMode(fakeCtx({ webStartup: {} })), "service");
+  assert.equal(resolveMode(fakeCtx({ profile: "remote", webStartup: {} })), "service");
+  assert.equal(resolveMode(fakeCtx({})), "cli");
+  assert.equal(resolveMode(fakeCtx({ profile: "web", webStartup: undefined })), "service");
 });
