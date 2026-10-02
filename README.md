@@ -100,6 +100,56 @@ dsh --profile remote down lab            # stop tunnel + registry released + sto
 
 The local URL opens the dsh web **on the server**: chat and read/write server files. Configure the API key in the remote web's Settings → Models (written to the server's `~/.dsh/.credentials.yaml` — this plugin and the tunnel never touch credentials).
 
+## Desktop app panel
+
+Installed into the desktop profile, the remote dsh web opens **inside the right sidebar's Browser panel** — no trip to the system browser. The plugin adds three entry points:
+
+| Entry point | Where | What it gives you |
+|---|---|---|
+| **Command card** | Type `/remote …` in a conversation | The command's output plus tunnel state, with "Open in browser", "Open in sidebar", "Start tunnel / up" and "Disconnect / down" |
+| **Status strip** | Above the composer | Always shows the tunnel state with one-click actions (hide it with `dock: false`) |
+| **Plugins page** | Left sidebar → 插件 | Enable/disable the plugin; its title and description follow the UI language |
+
+<!-- Screenshots (added in the 0.2.1 docs pass): docs/images/desktop-plugins.png, desktop-card.png, desktop-dock.png, desktop-panel.png -->
+
+### Install it into the desktop app
+
+Use the GUI, exactly like any other plugin:
+
+**Plugins page → "Add plugin" → `dsh-remote-tunnel` → install → restart the desktop app**
+
+Equivalent on the command line:
+
+```powershell
+dsh plugin --profile desktop add dsh-remote-tunnel
+```
+
+> The desktop app reads its profile at startup, so **the app must be fully restarted** (close the window *and* quit the tray process).
+
+### Two ways to open
+
+- **Open in sidebar** (recommended): the remote dsh web renders in the right sidebar's Browser panel; the plugin performs the token → cookie hand-off for you, so `dsh web authentication required` never appears;
+- **Open in browser**: the system browser opens the same local URL — handy when you want the page in its own window or need browser extensions.
+
+`openIn` picks the default (`ask` / `browser` / `panel`).
+
+### Desktop settings (Settings → Plugins)
+
+| Field | Default | Meaning |
+|---|---|---|
+| `home` | `$DSH_HOME/remote-tunnel` | Where tunnel state, logs and `config.yaml` live |
+| `openIn` | `ask` | Preferred way to open |
+| `autoOpen` | `false` | Open the remote dsh web in the sidebar at app start |
+| `dock` | `true` | Show the always-on status strip above the composer |
+
+The same values can be set directly on the `remote-tunnel` row's `config` in the profile patch layer (`$DSH_HOME/profiles/desktop/cordis.patch.yml`).
+
+### Shell behaviours worth knowing (not bugs)
+
+- **A brand-new conversation shows no command card**: the chat view renders the welcome surface until the session has model history, and command lifecycles are deliberately not model history. After the first turn, every earlier `/remote` card appears at once — the commands had already run;
+- **The status strip only renders once a session has content**: it lives in the composer's dock seat, which the hero (empty-session) layout does not render. **0.2.1 adds a "Remote hosts" sidebar panel that is reachable in every session state**;
+- A third-party slash command's **description is not localized by the client** (only first-party definitions carry localizations), which is why the plugin ships bilingual command copy.
+
 ## Commands
 
 ```

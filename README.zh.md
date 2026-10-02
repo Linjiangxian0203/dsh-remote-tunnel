@@ -95,6 +95,56 @@ dsh --profile remote down lab            # 停隧道 + 登记表 released + 停�
 
 打开本地 URL 后,登录到的是**服务器上的 dsh web**:能对话、能读写服务器文件。API key 在远程 web 的「设置 → 模型」里配置(写入服务器 `~/.dsh/.credentials.yaml`,本插件与隧道不触碰凭据)。
 
+## 桌面端面板(DSH 桌面应用)
+
+装进桌面 profile 后,远程的 dsh web 可以直接开在**右侧栏「浏览器」面板**里,不必跳系统浏览器。插件在桌面端提供三个入口:
+
+| 入口 | 位置 | 用途 |
+|---|---|---|
+| **命令卡片** | 对话里发 `/remote …` | 命令结果 + 隧道状态 + 「在浏览器打开」「在侧栏打开」「启动隧道 / up」「断开连接 / down」 |
+| **状态条** | 输入框上方 | 常驻显示隧道状态与一键操作(可用 `dock: false` 整条隐藏) |
+| **插件页** | 左侧「插件」 | 开关插件;标题与描述跟随界面语言(中文界面显示「远程隧道 (dsh-remote-tunnel)」) |
+
+<!-- 截图(0.2.1 文档更新时补):docs/images/desktop-plugins.png 插件页 / desktop-card.png 命令卡片 / desktop-dock.png 状态条 / desktop-panel.png 侧栏面板 -->
+
+### 安装到桌面端
+
+推荐走 GUI(和其它插件一样):
+
+**「插件」页 →「添加插件」→ 输入 `dsh-remote-tunnel` → 安装 → 重启桌面应用**
+
+命令行等价写法:
+
+```powershell
+dsh plugin --profile desktop add dsh-remote-tunnel
+```
+
+> 桌面应用只在自己启动时读取 profile,所以**装完必须重启应用**(窗口关掉后还要退出托盘进程)。
+
+### 两种打开方式
+
+- **在侧栏打开**(推荐):远程 dsh web 显示在右侧栏「浏览器」面板里,鉴权(`?token=` → cookie)由插件自动完成,不会再出现 `dsh web authentication required`;
+- **在浏览器打开**:用系统默认浏览器打开同一条本地 URL,适合希望页面独占窗口、或需要浏览器扩展的场景。
+
+`openIn` 可设置默认偏好(`ask` / `browser` / `panel`)。
+
+### 桌面端配置(设置 → 插件)
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `home` | `$DSH_HOME/remote-tunnel` | 隧道状态、日志与 `config.yaml` 所在目录 |
+| `openIn` | `ask` | 打开方式偏好 |
+| `autoOpen` | `false` | 启动桌面应用时自动把远程 dsh web 开进侧栏 |
+| `dock` | `true` | 是否显示输入框上方的常驻状态条 |
+
+也可以直接改 profile 补丁层(`$DSH_HOME/profiles/desktop/cordis.patch.yml`)里 `remote-tunnel` 那一行的 `config`,效果相同。
+
+### 已知的外壳行为(不是故障)
+
+- **纯新会话里看不到命令卡片**:会话视图在没有对话内容时显示欢迎页,而命令记录不属于模型历史;发出第一轮对话后,之前所有 `/remote` 卡片会一起出现(命令其实早已执行成功);
+- **状态条只在"会话已有内容"时出现**:它挂在输入框的 dock 座位,而全新会话用的是居中(hero)布局,该座位不渲染 —— **0.2.1 会增加侧栏「远程主机」面板,任何会话状态都能点到**;
+- 斜杠命令的**描述不会被客户端本地化**(只有第一方命令有本地化副本),因此插件里的命令描述写成中英双语。
+
 ## 命令一览
 
 ```
