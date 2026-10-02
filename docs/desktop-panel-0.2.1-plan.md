@@ -13,6 +13,43 @@
 
 用户拍板:**0.2.1 用侧栏「远程主机」面板根治** —— 面板挂在右侧栏标签条/指南里,任何会话状态都能点到。
 
+## 0.1 安全边界与回滚(先读这一节,回答「会不会把 app 改崩」)
+
+**这个插件不改造 app,也改造不了。** 事实:
+
+| 区域 | 我们是否写入 | 证据 |
+|---|---|---|
+| `E:\Applications\dsh\**`(app 本体、app.asar、main.js、前端 dist) | **从不** | 实测:12 小时内该目录下改动文件数 = 0;`app.asar` 时间戳仍是安装日 |
+| `E:\Applications\dsh-data\profiles\desktop\{package.json,node_modules,pnpm-lock.yaml}` | 会(等于「插件」页点一次『添加插件』) | 这是 app 的**配置数据**,不是 app 代码 |
+| `G:\remote_ssh_dsh\dsh-remote-tunnel`(插件仓库) | 会 | 全部源码/文档/测试都在这里 |
+| 插件在 profile 里的形态 | Junction(开发期)或 npm 副本 | 两种情况都只是 `node_modules` 里的一个包 |
+
+**为什么用到的接口是合法的**:客户端插件、侧栏 tab 类型、`slot`、命令、HTTP 路由、Config schema 都是运行时**公开给第三方插件**的扩展点 ——
+你机器上已有的 `dsh-context`(注册侧栏与命令)与 `dsh-plugin-whale-pet`(注册 `shell.overlay`)用的就是同一类接口。
+我们是`客人`,不是`装修队`。
+
+**最坏情况的爆炸半径**:
+
+1. **宿主半**抛错 → cordis 把这一行标记失败/跳过,**app 照常运行**(你机器上现在就有 4 个被 deny 的插件是这个状态);
+2. **客户端半**抛错 → 客户端模块系统记录`这一行`的加载/渲染失败(插件页/设置页可见),其余 UI 不受影响;最坏症状是`入口不出现/面板空白`;
+3. 唯一能碰到 app 进程的历史风险是 0.1.x 的模式判定竞态(可能 `appExit(0)` 退掉宿主),**0.2.0 已修并有单测**(`resolveMode`);
+4. 0.2.0 开发期间实测重启 8 次以上(含已知有 bug 的中间版本),app 每次都正常启动。
+
+**回滚(不需要 GUI 能用)**:
+
+```powershell
+& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop remove dsh-remote-tunnel
+# 或还原安装前备份:
+Copy-Item 'G:\remote_ssh_dsh\_run\backup-desktop-profile-20261002-160611\package.json' 'E:\Applications\dsh-data\profiles\desktop\package.json' -Force
+```
+
+**0.2.1 会碰的文件(就这些)**:
+
+- `src/client.js`(客户端半:新增 tab 注册 + 面板组件);
+- 可能 `src/web.js` / `src/index.js`(若做主机增删路由);
+- `test/unit.test.js`、README、CHANGELOG、`.github/releases/v0.2.1.md`;
+- **不碰**:app 本体、app.asar、Electron 主进程、前端 dist。
+
 ## 1. 交付物
 
 | 编号 | 内容 | 备注 |
@@ -57,7 +94,7 @@ GET /remote-tunnel/down?host=         → 停隧道 + 停远端单元 + 释放�
 
 ## 3. 开发环(重要)
 
-**桌面 profile 现在装的是 npm 副本(0.2.0),不是 junction** —— 仓库改动不会生效。开始时先切回 link:
+**先确认桌面 profile 里是 link 还是 npm 副本**(两种都出现过):
 
 ```powershell
 & 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add G:\remote_ssh_dsh\dsh-remote-tunnel
