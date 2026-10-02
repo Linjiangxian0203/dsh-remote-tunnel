@@ -129,3 +129,68 @@ webserver 的 prefix 匹配是 `path === P || path.startsWith(P + "/")`,
 - 点火目前是"加载即自动开一次";要改成**用户手势 + 双模式**(「在浏览器打开」/「在侧栏打开」,`openIn: ask|browser|panel`)。
 - 侧栏「远程主机」面板(列表/状态/up·down)、Config schema、双语文档。
 
+## 7. 新会话开工 prompt(复制粘贴给重启后的新会话)
+
+```text
+项目:G:\remote_ssh_dsh\dsh-remote-tunnel(dsh 插件,目标是让远端 dsh web 显示在桌面端右侧栏「浏览器」面板里)。
+
+先读这两份文档,不要重新逆向 app.asar:
+- docs/desktop-panel-progress.md(断点 / 验收矩阵 / 本机环境坑 / 回滚,最重要)
+- docs/desktop-web-refactor-route.md(技术路线书)
+
+已完成:
+- 阶段 0:侧栏「浏览器」手工验收 V2/V3/V4 通过(远端 hostname = being-Super-Server)。
+- 阶段 1 → 提交 43c1025:resolveMode 改用 profileContext 判模式(修 P0-1,避免误退宿主进程)、
+  peer 放宽覆盖 0.1.7-rc/0.2.0-rc 两线、插件已装进 profiles/desktop(link junction + bundles)。
+- 阶段 2a/2b → 提交 71c6212:宿主路由 /remote-tunnel/{state,open,up,down} 与
+  手写浏览器半 bundle(src/client.js,window.__ModuleLoader__.load 格式,无构建步骤)。
+
+待做:
+- 阶段 2c:把"加载即自动开面板"改成用户手势 + 双模式(openIn: ask|browser|panel,
+  「在浏览器打开」/「在侧栏打开」)。
+- 阶段 3:导出 Config schema(home/端口区间/主机表/openIn)、侧栏「远程主机」面板
+  (列表/状态/一键 up·down/两个打开按钮)、双语 README + lab 指南。
+- 阶段 4:发 0.2.0 —— 打 v0.2.0 tag → GitHub Actions(publish.yml)自动 npm publish,
+  目标是任何人在 GUI「插件 → 添加插件」里输入 dsh-remote-tunnel 就能装上。
+
+本机环境(必须遵守):
+- node.exe 只能写工作区 G:\remote_ssh_dsh:dsh CLI 一律用桌面 shim
+  E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd(或 ELECTRON_RUN_AS_NODE=1 +
+  "E:\Applications\dsh\DeepSeek Harness.exe" <bin.js>);npm 要 --cache G:\remote_ssh_dsh\_npmcache;
+  跑集成测试前先 $env:TEMP='G:\remote_ssh_dsh\_tmp'、$env:TMP 同值(否则 mkdtemp EPERM)。
+- 服务器 XDU-zc = 82.157.182.71:6204(user zc,密钥登录),远端 dsh 0.2.0-rc.2;
+  插件 up 后隧道 127.0.0.1:3081 → 远端 127.0.0.1:3080。远端写操作必须 flock + mktemp + cat >(禁用 mv)。
+- 桌面端是 Electron 壳,GUI 固定 127.0.0.1:19387,渲染器 origin 是 dsh-app://app/;
+  改 profile 必须重启桌面端才生效,重启会中断会话 —— 所以每步都要写进 docs/desktop-panel-progress.md。
+- 侧栏面板只能由客户端插件打开:ctx.sidebarRight.openTab("browser", { params: { url } })。
+- webserver 的 prefix 路由不能带结尾斜杠(path === P || path.startsWith(P + "/"))。
+- 不要动 npm-global 那份 dsh(0.1.7-rc.1,已弃用);不要基于 dsh-ssh.json 设计;
+  不要打印 E:\Applications\dsh-data\.credentials.yaml 的内容。
+
+我这轮 G1 + 点火验收的结果:(把结果贴在这里)
+
+请从"验收结果 → 阶段 2c"继续。
+```
+
+### 7.1 新会话快速自检(不改动 GUI)
+
+```powershell
+# 1) 隧道是否在跑
+Get-NetTCPConnection -State Listen -LocalPort 3081 -ErrorAction SilentlyContinue | Select LocalPort,OwningProcess
+Get-Content 'E:\Applications\dsh-data\remote-tunnel\state\XDU-zc.json' -Raw
+
+# 2) 插件是否已装进 desktop profile 且未被 deny
+& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop list
+
+# 3) 隔离 DSH_HOME 起一个 web profile 复现宿主侧行为(不动用户正在用的 GUI)
+#    它的 profiles/web/cordis.patch.yml 里已把 row 的 home 指到真实 remote-tunnel 目录
+& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' --profile web --no-open --port 19399
+#    (需要 DSH_HOME=G:\remote_ssh_dsh\_smoke\dsh-home;起来后用 index 里的 ?token= 换 cookie,
+#     再 GET /remote-tunnel/state 与 /remote-tunnel/open?host=XDU-zc)
+
+# 4) 测试
+cd G:\remote_ssh_dsh\dsh-remote-tunnel
+node test/unit.test.js
+$env:TEMP='G:\remote_ssh_dsh\_tmp'; $env:TMP=$env:TEMP; node test/integration.test.js
+```
+
