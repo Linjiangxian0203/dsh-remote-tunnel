@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { parseSshConfig, findSshAlias, parseKnownHosts } from "../src/ssh-config.js";
 import { parseTsv, sanitizeField, REGISTRY_COLUMNS } from "../src/remote/registry.js";
-import { normalizeConfig, DEFAULT_CONFIG, validateHostInput, upsertHost, dropHost } from "../src/config.js";
+import { normalizeConfig, DEFAULT_CONFIG, validateHostInput, upsertHost, dropHost, toggleHidden } from "../src/config.js";
 import { parsePort, parseIntArg } from "../src/cli-args.js";
 import { renderUnitBody } from "../src/remote/unit.js";
 import { readBootstrapScript, BOOTSTRAP_MARKER } from "../src/remote/bootstrap.js";
@@ -151,6 +151,26 @@ test("normalizeConfig merges user values over defaults", () => {
   assert.equal(merged.defaults.heartbeatSeconds, 0);
   assert.equal(merged.hosts.lab.host, "x");
   assert.deepEqual(merged.defaults.localPortRange, DEFAULT_CONFIG.defaults.localPortRange);
+  // The pane's hide list is filtered to strings, never inherited by accident.
+  assert.deepEqual(normalizeConfig({ hiddenHosts: ["a", 3, "", null] }).hiddenHosts, ["a"]);
+  assert.deepEqual(normalizeConfig({}).hiddenHosts, []);
+});
+
+test("toggleHidden: validated, reversible, never duplicated", () => {
+  const config = { hiddenHosts: [] };
+  assert.deepEqual(toggleHidden(config, "XDU-zc", true), { key: "XDU-zc", hidden: true });
+  assert.deepEqual(config.hiddenHosts, ["XDU-zc"]);
+  toggleHidden(config, "XDU-zc", true);
+  assert.deepEqual(config.hiddenHosts, ["XDU-zc"], "hiding twice must not duplicate");
+  toggleHidden(config, "github.com:22", true);
+  assert.deepEqual(config.hiddenHosts, ["XDU-zc", "github.com:22"], "a candidate hides by host:port");
+  toggleHidden(config, "XDU-zc", false);
+  assert.deepEqual(config.hiddenHosts, ["github.com:22"]);
+  toggleHidden(config, "github.com:22", false);
+  assert.deepEqual(config.hiddenHosts, [], "revealing an entry that is not hidden is a no-op");
+  for (const bad of ["", "   ", "a\u0000b", "x".repeat(201)]) {
+    assert.throws(() => toggleHidden(config, bad, true), (error) => error.code === "E_USAGE", JSON.stringify(bad));
+  }
 });
 
 test("REGISTRY_COLUMNS matches the documented order", () => {
@@ -280,9 +300,10 @@ function loadClientBundle() {
     tunnels: [{ alias: "lab", host: "10.0.0.1", remotePort: 3080, url: "http://127.0.0.1:3081", workspace: "/home/lab" }],
     hosts: [{ alias: "lab", host: "10.0.0.1", port: 22, origin: "plugin-config" }],
     discovered: [
-      { alias: "192.0.2.55", suggestedAlias: "192.0.2.55", host: "192.0.2.55", port: 22, origin: "known-hosts", managed: false },
-      { alias: "101.43.145.128:6104", suggestedAlias: "101.43.145.128-6104", host: "101.43.145.128", port: 6104, origin: "known-hosts", managed: false }
+      { alias: "192.0.2.55", suggestedAlias: "192.0.2.55", key: "192.0.2.55:22", host: "192.0.2.55", port: 22, origin: "known-hosts", managed: false },
+      { alias: "101.43.145.128:6104", suggestedAlias: "101.43.145.128-6104", key: "101.43.145.128:6104", host: "101.43.145.128", port: 6104, origin: "known-hosts", managed: false }
     ],
+    hidden: [],
     hashed: 2,
     requests: []
   };
@@ -297,6 +318,7 @@ function loadClientBundle() {
         version: "0.2.1",
         config: { openIn: "ask", autoOpen: false, dock: state.dock },
         hosts: state.hosts,
+        hidden: state.hidden,
         ...(state.legacy === true
           ? {}
           : {
@@ -659,6 +681,61 @@ test("client bundle: the pane survives a cold status and a 0.2.0 host half", asy
   assert.ok(!text.includes("发现的主机"), "no discovery section without a discovered list");
   assert.ok(!text.includes("known_hosts 记录已哈希"), text);
   react.reset();
+});
+
+test("client bundle: hiding is reversible from the pane and never deletes anything", async () => {
+  const load = loadClientBundle();
+  // A ~/.ssh/config host is the one the pane offers to hide (it cannot be deleted).
+  load.state.hosts = [{ alias: "from-ssh", host: "10.0.0.9", port: 22, origin: "ssh-config" }];
+  const { react, registered } = await mountClient(load);
+  const pane = registered.find((item) => item.definition.name === TAB_PANE);
+  // The pane arms a 15 s refresh interval, so a failing assertion here must still
+  // run the cleanups — otherwise the test process never exits.
+  try {
+    react.reset();
+    const props = { useTabInfo: () => ({ tab: { navigation: { params: {} } } }) };
+    const tree = await renderTree(react, pane.Component, props);
+    const text = collectStrings(tree).join(" | ");
+    assert.ok(text.includes("隐藏"), text);
+    assert.ok(text.includes("忽略"), text);
+    assert.ok(!text.includes("删除"), "an ssh-config host must not offer delete");
+
+    // The ssh-config host hides by alias…
+    findElement(tree, (element) => element.type === "button" && collectStrings(element).includes("隐藏")).props.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(
+      load.state.requests.filter((url) => url.includes("hosts/hide")),
+      ["/remote-tunnel/hosts/hide?confirm=1&key=from-ssh"]
+    );
+
+    // …a discovered candidate hides by host:port — URL-encoded, because the key
+    // travels as a query value…
+    load.state.requests.length = 0;
+    findElement(tree, (element) => element.type === "button" && collectStrings(element).includes("忽略")).props.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(
+      load.state.requests.filter((url) => url.includes("hosts/hide")),
+      ["/remote-tunnel/hosts/hide?confirm=1&key=192.0.2.55%3A22"]
+    );
+    assert.equal(load.state.requests.filter((url) => url.includes("hosts/remove")).length, 0, "hiding must never delete");
+
+    // …and 已隐藏 is the way back.
+    load.state.hidden = ["from-ssh", "192.0.2.55:22"];
+    react.reset();
+    const restored = await renderTree(react, pane.Component, props);
+    const restoredText = collectStrings(restored).join(" | ");
+    assert.ok(restoredText.includes("已隐藏 / hidden in this pane"), restoredText);
+    assert.ok(restoredText.includes("from-ssh"), restoredText);
+    load.state.requests.length = 0;
+    findElement(restored, (element) => element.type === "button" && collectStrings(element).includes("恢复")).props.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(
+      load.state.requests.filter((url) => url.includes("hosts/hide")),
+      ["/remote-tunnel/hosts/hide?confirm=1&key=from-ssh&hidden=0"]
+    );
+  } finally {
+    react.reset();
+  }
 });
 
 // ---- route admission (src/web.js) -------------------------------------------

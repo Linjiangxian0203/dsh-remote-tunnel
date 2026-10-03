@@ -9,6 +9,10 @@ import { TunnelError } from "./errors.js";
 export const DEFAULT_CONFIG = {
   // alias -> { host, port, user, workspace, remotePortRange?, identityFile? }
   hosts: {},
+  // Keys the sidebar pane keeps out of its lists: a managed host's alias, or a
+  // discovered candidate's `host:port`. A display preference — ~/.ssh/config is
+  // never touched, and the CLI still lists everything.
+  hiddenHosts: [],
   defaults: {
     // remote dsh web port range (first free port wins, checked on the server)
     remotePortRange: [3080, 3119],
@@ -55,6 +59,9 @@ export function configPath(home) {
 export function normalizeConfig(user = {}) {
   const out = structuredClone(DEFAULT_CONFIG);
   out.hosts = user.hosts ?? {};
+  out.hiddenHosts = Array.isArray(user.hiddenHosts)
+    ? user.hiddenHosts.filter((key) => typeof key === "string" && key.length > 0)
+    : [];
   for (const [key, value] of Object.entries(user.defaults ?? {})) {
     out.defaults[key] = typeof value === "object" && value !== null && !Array.isArray(value)
       ? { ...out.defaults[key], ...value }
@@ -122,6 +129,23 @@ export function validateHostInput(input = {}) {
     ...(rawUser === "" ? {} : { user: rawUser }),
     ...(rawWorkspace === "" ? {} : { workspace: rawWorkspace })
   };
+}
+
+/** Validate one pane hide key: a host alias, or a candidate's `host:port`. */
+export function validateHideKey(key) {
+  const text = String(key ?? "").trim();
+  if (text.length === 0 || text.length > 200 || /[\u0000-\u001f]/.test(text)) {
+    throw new TunnelError("invalid host key — expected an alias or host:port", { code: "E_USAGE" });
+  }
+  return text;
+}
+
+/** Hide or reveal one entry in the pane's lists (pure; caller saves). */
+export function toggleHidden(config, key, hidden) {
+  const text = validateHideKey(key);
+  const rest = (Array.isArray(config.hiddenHosts) ? config.hiddenHosts : []).filter((item) => item !== text);
+  config.hiddenHosts = hidden === true ? [...rest, text] : rest;
+  return { key: text, hidden: hidden === true };
 }
 
 /** Add or replace one host in a normalized config (pure; caller saves). */

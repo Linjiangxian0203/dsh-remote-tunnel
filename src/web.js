@@ -113,8 +113,13 @@ async function handle(connection, manager, services, settings, req, res) {
       case "state":
       case "status": {
         let hosts = [];
+        let hidden = [];
         try {
-          hosts = manager.listHosts();
+          // The pane's lists leave out what the user hid there; the CLI still
+          // lists everything, which is why the filter lives here and not in
+          // listHosts().
+          hosts = manager.listVisibleHosts();
+          hidden = manager.hiddenKeys();
         } catch (error) {
           hosts = [];
         }
@@ -138,6 +143,7 @@ async function handle(connection, manager, services, settings, req, res) {
             dock: settings?.dock !== false
           },
           hosts,
+          hidden,
           discovered: discovery.hosts,
           discovery: discovery.knownHosts,
           tunnels: manager.listStatesLocal(),
@@ -212,6 +218,20 @@ async function handle(connection, manager, services, settings, req, res) {
           overwrite: url.searchParams.get("overwrite") === "1"
         });
         return sendJson(res, 200, { ok: true, ...added });
+      }
+      // Hiding is a display preference, not a delete: it only ever writes the
+      // plugin's own config.yaml, so a ~/.ssh/config entry can be put out of the
+      // way without touching the user's ssh setup.
+      case "hosts/hide": {
+        if (url.searchParams.get("confirm") !== "1") {
+          return sendJson(res, 400, { ok: false, error: "hosts/hide writes the config — pass confirm=1" });
+        }
+        const key = url.searchParams.get("key");
+        if (key === null || key.length === 0) {
+          return sendJson(res, 400, { ok: false, error: "missing ?key=<alias|host:port>" });
+        }
+        const result = manager.hideHost(key, url.searchParams.get("hidden") !== "0");
+        return sendJson(res, 200, { ok: true, ...result });
       }
       case "hosts/remove": {
         if (url.searchParams.get("confirm") !== "1") {

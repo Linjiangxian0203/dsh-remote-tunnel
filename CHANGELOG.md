@@ -27,6 +27,10 @@ plus host discovery from `~/.ssh` and host management from the panel itself.
   once — are offered as candidates. Adding one writes the plugin's `config.yaml`; `~/.ssh` is never
   written to. Hashed entries (`HashKnownHosts`, the OpenSSH default on many systems) and `@revoked`
   lines cannot be resolved and are reported as counts; `@cert-authority` hosts are kept, wildcards dropped.
+- **Hide instead of delete**: a `~/.ssh/config` host — which the plugin must never edit — and a
+  discovered candidate can be hidden from the pane's lists. Hiding writes the plugin's own
+  `config.yaml` (`hiddenHosts`) only, everything hidden is listed under 已隐藏 with a restore button,
+  and the CLI keeps listing every host. Route: `GET /remote-tunnel/hosts/hide?confirm=1&key=…&hidden=0|1`.
 - **Host routes** `GET /remote-tunnel/hosts/add` and `GET /remote-tunnel/hosts/remove`: both run
   through `ctx.connection.admit()` like every other route, and require `confirm=1` so a prefetch or a
   link scanner cannot edit the config by accident.
@@ -38,9 +42,9 @@ plus host discovery from `~/.ssh` and host management from the panel itself.
   file name either). Each candidate now carries a `suggestedAlias` (`host-port`) that the pane submits.
 - `GET /remote-tunnel/status` now also returns `discovered[]` and `discovery { path, exists, hashed,
   revoked }`; the CLI's `hosts` listing shows the same discovered section.
-- Tests: unit 21 → 30 (known_hosts parsing, host-input validation, the pure config helpers, the tab
-  registration, the guide glyph, the pane's rendering, its write URLs, multi-host selection and the
-  0.2.0-host-half mixed state).
+- Tests: unit 21 → 32 (known_hosts parsing, host-input validation, the pure config helpers, hide-key
+  handling, the tab registration, the guide glyph, the pane's rendering, its write URLs, hiding and
+  restoring, multi-host selection and the 0.2.0-host-half mixed state).
 
 ### Changed
 - `hosts add` / `hosts rm` on the CLI now go through the same validated manager path as the panel.

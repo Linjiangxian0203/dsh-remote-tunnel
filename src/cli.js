@@ -116,6 +116,11 @@ Commands:
       if (discovery.knownHosts.hashed > 0) {
         reporter.out(`(${discovery.knownHosts.hashed} hashed known_hosts entries cannot be listed — set HashKnownHosts no to see them)`);
       }
+      const hidden = manager.hiddenKeys();
+      if (hidden.length > 0) {
+        // Hiding is a pane preference; this listing is the full picture.
+        reporter.out(`(${hidden.length} entr${hidden.length === 1 ? "y" : "ies"} hidden in the sidebar pane — restore there)`);
+      }
     }).then(() => exit?.(0), (error) => { printError(error); exit?.(1); });
   });
 

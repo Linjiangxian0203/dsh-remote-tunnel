@@ -1,7 +1,7 @@
 import os from "node:os";
 import { spawn } from "node:child_process";
 import { TunnelError } from "./errors.js";
-import { loadConfig, saveConfig, validateHostInput, upsertHost, dropHost } from "./config.js";
+import { loadConfig, saveConfig, validateHostInput, upsertHost, dropHost, toggleHidden } from "./config.js";
 import { readSshConfig, findSshAlias, readKnownHosts } from "./ssh-config.js";
 import { execRemote, spawnSsh, canSudo, remoteFacts } from "./ssh.js";
 import {
@@ -105,6 +105,37 @@ export class TunnelManager {
     return [...merged.values()].sort((a, b) => a.alias.localeCompare(b.alias));
   }
 
+  /** Keys the sidebar pane keeps out of its lists (aliases and `host:port`). */
+  hiddenKeys() {
+    return Array.isArray(this.cfg.hiddenHosts) ? [...this.cfg.hiddenHosts] : [];
+  }
+
+  /** listHosts() minus the entries hidden in the pane. */
+  listVisibleHosts() {
+    const hidden = new Set(this.hiddenKeys());
+    return this.listHosts().filter((entry) => !hidden.has(entry.alias));
+  }
+
+  /** Hide or reveal one pane entry; only the plugin's own config.yaml changes. */
+  hideHost(key, hidden) {
+    const trimmed = String(key ?? "").trim();
+    const { config } = loadConfig(this.home);
+    const already = Array.isArray(config.hiddenHosts) && config.hiddenHosts.includes(trimmed);
+    // Hiding something that is not on offer is a stale UI, not a user mistake:
+    // say so instead of growing the list with a key that matches nothing.
+    if (hidden === true && !already) {
+      const known = new Set(this.listHosts().map((entry) => entry.alias));
+      for (const candidate of this.discoverHosts().hosts) known.add(candidate.key);
+      if (!known.has(trimmed)) {
+        throw new TunnelError(`nothing to hide for "${trimmed}"`, { code: "E_UNKNOWN_HOST" });
+      }
+    }
+    const result = toggleHidden(config, trimmed, hidden);
+    const path = saveConfig(this.home, config);
+    this.cfg = config;
+    return { ...result, path };
+  }
+
   /**
    * Candidates from ~/.ssh/known_hosts that no managed host already covers.
    *
@@ -116,10 +147,12 @@ export class TunnelManager {
   discoverHosts() {
     const known = readKnownHosts();
     const covered = new Set(this.listHosts().map((entry) => `${entry.host}:${entry.port}`));
+    const hidden = new Set(this.hiddenKeys());
     return {
       hosts: known.hosts
-        .filter((entry) => !covered.has(`${entry.host}:${entry.port}`))
-        .map((entry) => ({ ...entry, origin: "known-hosts", managed: false })),
+        .filter((entry) => !covered.has(`${entry.host}:${entry.port}`) && !hidden.has(`${entry.host}:${entry.port}`))
+        // `key` is what the pane sends back to ignore or restore this candidate.
+        .map((entry) => ({ ...entry, key: `${entry.host}:${entry.port}`, origin: "known-hosts", managed: false })),
       knownHosts: { path: known.path, exists: known.exists, hashed: known.hashed, revoked: known.revoked }
     };
   }

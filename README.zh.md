@@ -123,12 +123,16 @@ dsh --profile remote down lab            # 停隧道 + 登记表 released + 停�
 | **在侧栏打开** · **在浏览器打开** | 把远端 dsh web 开进侧栏「浏览器」标签,或用系统浏览器打开 |
 | **刷新 / refresh** | 重新读取 `/remote-tunnel/status`(面板本身每 15 秒也会自动刷新) |
 | **vX.Y.Z**(标题旁) | 宿主半上报的当前版本 —— 桌面端「插件」页对任何插件都不显示版本号 |
-| **已配置主机 / managed hosts** | `~/.ssh/config` 条目(只读,已标注)与插件自己 `config.yaml` 里的条目(可两步删除) |
-| **发现的主机 / discovered in ~/.ssh** | `~/.ssh/known_hosts` 里的明文条目 —— 本机连接过的主机。点「添加」写进**插件配置**;`~/.ssh` 本身绝不会被写入 |
+| **已配置主机 / managed hosts** | `~/.ssh/config` 条目(只读、已标注、**可隐藏**)与插件自己 `config.yaml` 里的条目(可两步删除) |
+| **发现的主机 / discovered in ~/.ssh** | `~/.ssh/known_hosts` 里的明文条目 —— 本机连接过的主机。点「**添加**」写进**插件配置**,点「**忽略**」把它挪开;`~/.ssh` 本身绝不会被写入 |
+| **已隐藏 / hidden in this pane** | 你隐藏过的东西,每条一个「**恢复**」—— 隐藏只是显示偏好,永远不是删除 |
 
 被哈希的 `known_hosts` 条目(很多系统默认 `HashKnownHosts yes`)无法反解成主机名,面板只报告跳过条数,不做猜测。
 非默认端口的候选在 `known_hosts` 里写作 `host:port`,那是**显示文本而不是合法别名** ——
 点「添加」时存下的是安全别名(如 `host-port`)加真实端口。
+
+「隐藏」只写插件自己的 `config.yaml`(`hiddenHosts`),不动别的:命令行 `hosts` 依旧列出全部主机,
+所以面板里隐藏过的条目不会丢。
 
 > 面板属于**客户端半**。改动 `src/client.js` 会改变 bundle 的 revision,而运行中的宿主拒绝提供过期 revision ——
 > 更新插件后请**重启桌面应用**。

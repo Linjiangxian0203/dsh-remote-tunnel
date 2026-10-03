@@ -277,6 +277,7 @@ window.__ModuleLoader__.load({
       var hosts = status && Array.isArray(status.hosts) ? status.hosts : [];
       var tunnels = status && Array.isArray(status.tunnels) ? status.tunnels : [];
       var discovered = status && Array.isArray(status.discovered) ? status.discovered : [];
+      var hiddenKeys = status && Array.isArray(status.hidden) ? status.hidden : [];
 
       function target() {
         if (picked !== null && picked !== "") return picked;
@@ -331,6 +332,12 @@ window.__ModuleLoader__.load({
       function removeHost(entry) {
         setPendingRemove(null);
         work("remove:" + entry.alias, callHost("hosts/remove?confirm=1&alias=" + encodeURIComponent(entry.alias)));
+      }
+
+      // Hiding is a pane preference: it writes the plugin's config.yaml, never
+      // ~/.ssh, and the entry can always be brought back from 已隐藏 below.
+      function setHidden(key, hide) {
+        work("hide:" + key, callHost("hosts/hide?confirm=1&key=" + encodeURIComponent(key) + (hide ? "" : "&hidden=0")));
       }
 
       var children = [
@@ -405,7 +412,11 @@ window.__ModuleLoader__.load({
               }
             }, busy === "remove:" + entry.alias ? "删除中…" : pendingRemove === entry.alias ? "确认删除?" : "删除"));
           } else {
-            row.push(h("span", { key: "src", style: S.muted }, "来自 ~/.ssh/config · 只读"));
+            row.push(h("span", { key: "src", style: S.muted }, "来自 ~/.ssh/config"));
+            row.push(h("button", {
+              key: "hide", style: S.dockButton, disabled: busy !== "",
+              onClick: function () { setHidden(entry.alias, true); }
+            }, busy === "hide:" + entry.alias ? "隐藏中…" : "隐藏"));
           }
           return h("div", { key: "m-" + entry.alias, style: S.hostRow }, row);
         });
@@ -422,7 +433,11 @@ window.__ModuleLoader__.load({
               h("button", {
                 key: "add", style: S.dockButton, disabled: busy !== "",
                 onClick: function () { addHost(candidate); }
-              }, busy === "add:" + candidate.alias ? "添加中…" : "添加")
+              }, busy === "add:" + candidate.alias ? "添加中…" : "添加"),
+              h("button", {
+                key: "ignore", style: S.dockButton, disabled: busy !== "",
+                onClick: function () { setHidden(candidate.key, true); }
+              }, busy === "hide:" + candidate.key ? "忽略中…" : "忽略")
             ]);
           });
           children.push(h("div", { key: "discovered", style: S.section },
@@ -431,6 +446,21 @@ window.__ModuleLoader__.load({
             children.push(h("div", { key: "more", style: S.muted },
               "还有 " + (discovered.length - shown.length) + " 台未显示"));
           }
+        }
+        // Anything hidden above is listed here, so hiding is always reversible
+        // from the pane itself.
+        if (hiddenKeys.length > 0) {
+          var hiddenRows = hiddenKeys.map(function (key) {
+            return h("div", { key: "h-" + key, style: S.hostRow }, [
+              h("span", { key: "n", style: S.mono }, key),
+              h("button", {
+                key: "show", style: S.dockButton, disabled: busy !== "",
+                onClick: function () { setHidden(key, false); }
+              }, busy === "hide:" + key ? "恢复中…" : "恢复")
+            ]);
+          });
+          children.push(h("div", { key: "hidden", style: S.section },
+            [h("div", { key: "t", style: S.sectionTitle }, "已隐藏 / hidden in this pane")].concat(hiddenRows)));
         }
         if (status.discovery && status.discovery.hashed > 0) {
           children.push(h("div", { key: "hashed", style: S.muted },

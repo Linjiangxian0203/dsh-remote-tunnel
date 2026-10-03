@@ -129,13 +129,17 @@ strip is not rendered in the hero layout a new session shows.
 | **在侧栏打开** · **在浏览器打开** | Opens the remote dsh web in the sidebar Browser tab, or in the system browser |
 | **刷新 / refresh** | Re-reads `/remote-tunnel/status` (the pane also polls every 15 s) |
 | **vX.Y.Z** (beside the title) | The version the host half reported — the desktop app's Plugins page renders no version for any plugin |
-| **已配置主机 / managed hosts** | `~/.ssh/config` entries (read-only, marked) and the plugin's own `config.yaml` entries (removable, two-step) |
-| **发现的主机 / discovered in ~/.ssh** | Plaintext `~/.ssh/known_hosts` entries — hosts this machine has connected to. One click adds one to the plugin's config; **`~/.ssh` itself is never written to** |
+| **已配置主机 / managed hosts** | `~/.ssh/config` entries (read-only, labelled, **hideable**) and the plugin's own `config.yaml` entries (removable, two-step) |
+| **发现的主机 / discovered in ~/.ssh** | Plaintext `~/.ssh/known_hosts` entries — hosts this machine has connected to. **添加** writes one into the plugin's config, **忽略** puts it out of the way; **`~/.ssh` itself is never written to** |
+| **已隐藏 / hidden in this pane** | Everything you hid, each with a **恢复** button — hiding is a display preference, never a delete |
 
 Hashed `known_hosts` entries (`HashKnownHosts yes`, the OpenSSH default on many systems) cannot be
 reversed into a hostname; the pane reports how many were skipped instead of guessing. A candidate on a
 non-default port is spelled `host:port` in `known_hosts`, which is display text rather than a legal
 alias — adding it stores a safe alias such as `host-port` together with the real port.
+
+Hiding writes the plugin's own `config.yaml` (`hiddenHosts`) and nothing else: the CLI keeps listing
+every host, so an entry hidden in the pane is never lost.
 
 > The pane belongs to the **client** half. Changing `src/client.js` changes the bundle's revision, and a
 > running host refuses to serve a stale revision — **restart the desktop app** after updating the plugin.
