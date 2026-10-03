@@ -88,6 +88,22 @@ function splitKnownHost(name) {
 }
 
 /**
+ * Propose a safe alias for one discovered host.
+ *
+ * An alias is an identifier, not an address: it lands in the plugin's
+ * config.yaml, in state file names and on the CLI, so anything outside
+ * [A-Za-z0-9._@-] has to go. A known_hosts entry on a non-default port is
+ * spelled `host:port`, and a colon is neither a legal alias here nor a legal
+ * Windows file name — that is the shape the panel used to send, and the host
+ * refused it with "invalid alias".
+ */
+function suggestedAlias(host, port) {
+  const suffix = port === 22 ? "" : `-${port}`;
+  const base = host.replace(/[^A-Za-z0-9._@-]/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, Math.max(1, 64 - suffix.length));
+  return base.length === 0 ? `host${suffix}` : `${base}${suffix}`;
+}
+
+/**
  * Parse known_hosts text into candidate hosts.
  *
  * The file proves a host was connected to at least once, which is what the
@@ -123,11 +139,12 @@ export function parseKnownHosts(text) {
       if (seen.has(key)) continue;
       seen.add(key);
       hosts.push({
-        // The suggested alias is the host itself on the default port, and the
-        // known_hosts spelling (`host:port`, or `[v6]:port`) otherwise.
+        // `alias` is the known_hosts spelling, for display; `suggestedAlias` is
+        // what the plugin would store if the user adds this candidate.
         alias: parsed.port === 22
           ? parsed.host
           : parsed.host.includes(":") ? `[${parsed.host}]:${parsed.port}` : `${parsed.host}:${parsed.port}`,
+        suggestedAlias: suggestedAlias(parsed.host, parsed.port),
         host: parsed.host,
         port: parsed.port
       });

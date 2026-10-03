@@ -210,13 +210,20 @@ test("parseKnownHosts: plain, bracketed port, comma lists, hashed/revoked/patter
     "[2001:db8::1]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDd"
   ].join("\r\n");
   const parsed = parseKnownHosts(text);
-  assert.deepEqual(parsed.hosts.map((h) => [h.alias, h.host, h.port]), [
-    ["192.0.2.10", "192.0.2.10", 22],
-    ["lab.example.com:6104", "lab.example.com", 6104],
-    ["a.example.com", "a.example.com", 22],
-    ["b.example.com", "b.example.com", 22],
-    ["[2001:db8::1]:2222", "2001:db8::1", 2222]
+  assert.deepEqual(parsed.hosts.map((h) => [h.alias, h.suggestedAlias, h.host, h.port]), [
+    ["192.0.2.10", "192.0.2.10", "192.0.2.10", 22],
+    ["lab.example.com:6104", "lab.example.com-6104", "lab.example.com", 6104],
+    ["a.example.com", "a.example.com", "a.example.com", 22],
+    ["b.example.com", "b.example.com", "b.example.com", 22],
+    ["[2001:db8::1]:2222", "2001-db8--1-2222", "2001:db8::1", 2222]
   ]);
+  // The suggested alias is what the panel will submit, so it must already be a
+  // legal alias: a colon (host:port, and illegal in a Windows file name) would
+  // otherwise come back as a 400 "invalid alias".
+  for (const host of parsed.hosts) {
+    const entry = validateHostInput({ alias: host.suggestedAlias, host: host.host, port: host.port });
+    assert.equal(entry.alias, host.suggestedAlias);
+  }
   // Hashed entries cannot be reversed; revoked ones are not offered; wildcards name no single host.
   assert.equal(parsed.hashed, 1);
   assert.equal(parsed.revoked, 1);
@@ -272,7 +279,10 @@ function loadClientBundle() {
     dock: true,
     tunnels: [{ alias: "lab", host: "10.0.0.1", remotePort: 3080, url: "http://127.0.0.1:3081", workspace: "/home/lab" }],
     hosts: [{ alias: "lab", host: "10.0.0.1", port: 22, origin: "plugin-config" }],
-    discovered: [{ alias: "192.0.2.55", host: "192.0.2.55", port: 22, origin: "known-hosts", managed: false }],
+    discovered: [
+      { alias: "192.0.2.55", suggestedAlias: "192.0.2.55", host: "192.0.2.55", port: 22, origin: "known-hosts", managed: false },
+      { alias: "101.43.145.128:6104", suggestedAlias: "101.43.145.128-6104", host: "101.43.145.128", port: 6104, origin: "known-hosts", managed: false }
+    ],
     hashed: 2,
     requests: []
   };
@@ -284,6 +294,7 @@ function loadClientBundle() {
     const body = String(url).includes("/status")
       ? {
         ok: true,
+        version: "0.2.1",
         config: { openIn: "ask", autoOpen: false, dock: state.dock },
         hosts: state.hosts,
         ...(state.legacy === true
@@ -357,6 +368,15 @@ async function renderTree(react, Component, props) {
   const tree = Component(props);
   react.drain();
   return tree;
+}
+
+/** Depth-first search collecting every element a predicate accepts. */
+function findAll(value, predicate, out = []) {
+  if (value === null || value === undefined || typeof value !== "object") return out;
+  const children = Array.isArray(value) ? value : (value.children ?? []);
+  if (!Array.isArray(value) && predicate(value)) out.push(value);
+  for (const child of children) findAll(child, predicate, out);
+  return out;
 }
 
 /** Depth-first search for the first element a predicate accepts. */
@@ -474,11 +494,18 @@ test("client bundle: registers the remote-hosts tab type with a guide entry", as
   assert.equal(definition.kind, "remote-hosts");
   assert.ok(!("patterns" in definition), "a page type must not claim resource patterns");
   assert.equal(typeof definition.title, "function");
-  assert.equal(definition.title(), "远程主机");
+  assert.equal(definition.title(), "远程连接");
   assert.equal(definition.guide.length, 1);
   assert.equal(definition.guide[0].id, "hosts");
   assert.equal(typeof definition.guide[0].order, "number");
-  assert.equal(definition.guide[0].title(), "远程主机");
+  assert.equal(definition.guide[0].title(), "远程连接");
+  // The guide draws entry.icon({ size, className }); without it the capsule
+  // falls back to the guide's own cube.
+  assert.equal(typeof definition.guide[0].icon, "function", "the capsule must carry its own glyph");
+  const glyph = definition.guide[0].icon({ size: 26 });
+  assert.equal(glyph.type, "svg");
+  assert.equal(glyph.props.width, 26);
+  assert.equal(glyph.children.length, 3, "a screen, a neck and a base");
   assert.ok(definition.guide[0].description().length > 0, "the guide capsule needs a description");
   assert.equal(disposers.length, 1, "the registration must be owned by ctx.effect");
   assert.equal(typeof disposers[0], "function", "and must hand back its disposer");
@@ -493,7 +520,8 @@ test("client bundle: the sidebar pane shows the tunnel, both open modes and the 
   react.reset();
   const props = { useTabInfo: () => ({ sidebar: {}, panel: { id: "pane-1" }, tab: { navigation: { params: {} } } }) };
   const live = await renderTwice(react, pane.Component, props);
-  assert.ok(live.second.includes("远程主机"), live.second);
+  assert.ok(live.second.includes("远程连接"), live.second);
+  assert.ok(live.second.includes("v0.2.1"), "the pane must show which build is live");
   assert.ok(live.second.includes("已连接 / connected"), live.second);
   assert.ok(live.second.includes("隧道:lab"), live.second);
   assert.ok(live.second.includes("在侧栏打开"), live.second);
@@ -541,6 +569,20 @@ test("client bundle: the pane lists hosts, offers discovered candidates and spel
   assert.deepEqual(
     load.state.requests.filter((url) => url.includes("hosts/add")),
     ["/remote-tunnel/hosts/add?confirm=1&alias=192.0.2.55&host=192.0.2.55&port=22"]
+  );
+
+  // A known_hosts entry on a non-default port is spelled `host:port`, which is
+  // display text, not an alias: the write must carry the suggested alias.
+  const portRow = findAll(tree, (element) => element.type === "div"
+    && element.children.some((child) => child && child.type === "span"
+      && Array.isArray(child.children) && child.children[0] === "101.43.145.128:6104 · 101.43.145.128:6104"))[0];
+  assert.ok(portRow, "the non-default-port candidate must be listed");
+  const portAdd = findElement(portRow, (element) => element.type === "button");
+  portAdd.props.onClick();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(
+    load.state.requests.filter((url) => url.includes("hosts/add")).slice(1),
+    ["/remote-tunnel/hosts/add?confirm=1&alias=101.43.145.128-6104&host=101.43.145.128&port=6104"]
   );
 
   // Removing a managed host is a two-step action: the first click only arms it.

@@ -1,5 +1,16 @@
+import { readFileSync } from "node:fs";
 import { TunnelError } from "./errors.js";
 import { record, snapshot } from "./probe.js";
+
+// The plugin's own version, read once: the sidebar pane shows it so a user can
+// tell which build is live (the desktop app's Plugins page renders no version).
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version ?? null;
+  } catch (error) {
+    return null;
+  }
+})();
 
 // dsh-remote-tunnel host half for the browser UI: the HTTP surface the client
 // bundle calls. Routes live under /remote-tunnel/ and ride the same carrier as
@@ -119,6 +130,7 @@ async function handle(connection, manager, services, settings, req, res) {
         }
         return sendJson(res, 200, {
           ok: true,
+          version: VERSION,
           services: services ?? null,
           config: {
             openIn: settings?.openIn ?? "ask",
