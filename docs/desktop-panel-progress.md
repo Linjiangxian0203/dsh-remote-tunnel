@@ -549,3 +549,61 @@ integration **17/17**(TEMP 重定向)。
 (`15DFF8407C6B73762B667B02A2845FEC`);`~/.ssh` 全程只读。冒烟后 `_smoke` 的 patch 已改回真实 `home`,19399 重启后 `status` 200 / `discovered=3`。
 
 **下一步**:阶段 5(README 双语「侧栏面板」章节 + CHANGELOG + `.github/releases/v0.2.1.md` + prompt 文档进 `.gitignore`),然后给用户重启验收包。
+
+
+## 21. 0.2.1 阶段 5 完成 + 阶段 6 真机验收包(2026-10-03)
+
+**阶段 5 交付**(提交 `ce0a59d`、`84cdb34`):README 双语入口表新增「远程主机面板」+ 使用小节(展开右栏 → 指南胶囊 → 五个动作、已配置/发现两类主机、
+哈希 known_hosts 只报数、客户端改动需重启);`.gitignore` 忽略两份本地 prompt 笔记;版本号 `0.2.1`(package.json + package-lock);CHANGELOG `[0.2.1]`;
+`.github/releases/v0.2.1.md` 中英发布说明。全量测试:unit **28/28**、integration **17/17**。
+
+**分支状态**:5 个提交,工作树干净(被忽略的本地笔记除外),HEAD = `84cdb34`。
+
+### 为什么要重启(而不是刷新页面)
+
+client bundle 的 rev = `sha1(mtimeMs + ctimeMs + size)`,运行中的宿主**拒绝**过期 rev(404)且不重新发布;
+宿主半(`index/web/manager`…)与客户端半都只在进程启动时加载。所以**只刷新页面不够,必须彻底重启桌面应用**(§18)。
+
+### 重启步骤(用户操作)
+
+1. 本会话就跑在桌面应用里 —— 重启会中断它,验收结果回来告诉我(或直接说"通过");
+2. 完全退出:关窗口 **并且** 托盘退出(任务管理器里不应再有 `DeepSeek Harness.exe`);
+3. 重新启动桌面应用(工作树仍在 `feat/0.2.1-remote-hosts-panel` 分支,junction 直接生效,**不用重装插件**)。
+
+### 验收清单
+
+| # | 操作 | 期望 |
+|---|---|---|
+| A1 | 左侧「插件」页 | 出现「远程隧道 (dsh-remote-tunnel)」,版本 **0.2.1** |
+| A2 | **新建空会话**(不发消息)→ 展开右侧栏(会话头部右上角按钮) | 指南页出现「**远程主机**」胶囊(与 浏览器 / 工作区文件 / 新建终端 并列) |
+| A3 | 点「远程主机」胶囊 | 面板打开:标题「远程主机」、连接状态标签、主机行、五个动作按钮 |
+| A4 | 面板点「启动隧道 / up」 | 隧道起来(端口可能不是 3081),状态变「已连接 / connected」,显示 `隧道:XDU-zc · …` |
+| A5 | 面板点「在侧栏打开」 | 右侧栏出现远端 dsh web;在远端面板里发「执行 hostname,把原始输出返回给我」→ `being-Super-Server`(V4) |
+| A6 | 「已配置主机 / managed hosts」区 | 列出 `XDU-zc`,标注 `~/.ssh/config`(只读,无删除按钮) |
+| A7 | 「发现的主机 / discovered in ~/.ssh」区 | 列出 `known_hosts` 里连过的主机(本机实测 3 台);点「添加」→ 变成已配置主机(`plugin-config`),可两步「删除」 |
+| A8 | 点「断开连接 / down」(两步确认) | 隧道停止,状态变「未连接 / not connected」,动作变回「启动隧道 / up」 |
+| A9 | 输入框上方状态条 + `/remote hosts` 卡片 | 与 0.2.0 行为一致(回归检查) |
+
+某环节失败:把现象(以及面板里的红字错误)告诉我;宿主半还可看 `/remote-tunnel/status` 返回的 `client.events` 黑匣子。
+
+### 回滚命令(不需要 GUI 能用)
+
+```powershell
+cd G:\remote_ssh_dsh\dsh-remote-tunnel
+git checkout main                      # 工作树立即回到 0.2.0 内容
+# 然后必须彻底重启桌面应用(§18:改文件会让运行中宿主的 bundle rev 失效)
+# 要连插件一起摘掉:
+& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop remove dsh-remote-tunnel
+# 想回到开发态(link 安装):
+& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add G:\remote_ssh_dsh\dsh-remote-tunnel
+```
+
+### 验收通过后的发版顺序(阶段 7)
+
+1. `git merge --ff-only feat/0.2.1-remote-hosts-panel`(保持线性历史;树内容 = 验收的那个 commit);
+2. `git push origin main`;
+3. `git tag -a v0.2.1 -m 'dsh-remote-tunnel 0.2.1'` → `git push origin v0.2.1`;
+4. CI(`publish.yml`)跑全量测试 → `npm publish` → 贴发布说明;`fetch` **发布后约 1 分钟 registry 才可见**,别误判失败;
+5. 复核 `npm view dsh-remote-tunnel version` 与 dist-tags;
+6. (可选)GUI「插件 → 添加插件 → `dsh-remote-tunnel`」装 npm 版做端到端复验 —— 注意这会把 junction 换成真实副本,
+   之后仓库改动不再对桌面端生效(要回到开发态就再 `plugin add <仓库目录>`)。
