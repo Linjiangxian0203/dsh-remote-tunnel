@@ -1,10 +1,19 @@
-# Local scratch material — the user's own notes, deliberately git-ignored and
-# never published.
+# Local scratch material and local-history notes — deliberately kept out of the
+# published tarball.
 #
 # Why this file lives in docs/ instead of the package root: a root .npmignore
 # does NOT override package.json's "files" field, but one in a subdirectory does.
-# Without it, `files: ["docs"]` would publish these three files (npm pack reads
-# the working tree, so .gitignore alone does not keep them out).
+# Without it, `files: ["docs"]` would publish these files (npm pack reads the
+# working tree, so .gitignore alone does not keep them out).
+#
+# The user's own working notes.
 desktop-panel-kickoff-prompt.md
 desktop-panel-prompt-short.md
 optimization-plan.md
+
+# Local-history documents: they record THIS machine — the ssh alias, the server
+# address, local paths, backup directories. They stay in the git repository
+# (where they are the project's own history) but never travel to npm.
+desktop-panel-progress.md
+desktop-panel-0.2.1-plan.md
+desktop-web-refactor-route.md
