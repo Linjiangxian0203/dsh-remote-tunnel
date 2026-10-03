@@ -598,6 +598,20 @@ git checkout main                      # 工作树立即回到 0.2.0 内容
 & 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add G:\remote_ssh_dsh\dsh-remote-tunnel
 ```
 
+## 22. 0.2.1 发布前打包自检(2026-10-03)
+
+`npm pack --dry-run --cache G:\remote_ssh_dsh\_npmcache`(先重定向 TEMP/TMP)结果:
+
+- **0.2.1 tarball:34 个文件 / 116.2kB**,含 `src/client.js`(33.6kB,新面板)、`src/ssh-config.js`、`src/config.js`、`src/web.js`、
+  `docs/desktop-panel-{0.2.1-plan,progress}.md`、双语 README、CHANGELOG、`locale/*`、`cordis.patch.yml`、`scripts/bootstrap-remote.sh`;
+  `package.json` version = 0.2.1。
+- **⚠️ 差点泄露**:`files: ["docs"]` 会把**工作树里**的 `docs/desktop-panel-kickoff-prompt.md`、`docs/desktop-panel-prompt-short.md`
+  (用户自己的思路笔记)和 `docs/optimization-plan.md` 一起打进 npm 包 —— **`.gitignore` 对 `npm pack` 无效**(npm 从工作树取文件,不是从 git)。
+- **踩坑**:把 `.npmignore` 放**包根目录不起作用**。npm 的规则是"根 `.npmignore` 不覆盖 `files` 字段,**子目录里的才会**"
+  (实测:加了根 `.npmignore` 后仍是 37 个文件)。
+- **修法**:新建 `docs/.npmignore` 列掉这三个文件 → 重新 `npm pack --dry-run`:**34 个文件 / 116.2kB**,三个文件消失,其余不变。
+  根 `.npmignore` 已删除(留着只会误导,原因写在 `docs/.npmignore` 的注释里)。
+
 ### 验收通过后的发版顺序(阶段 7)
 
 1. `git merge --ff-only feat/0.2.1-remote-hosts-panel`(保持线性历史;树内容 = 验收的那个 commit);
