@@ -734,3 +734,24 @@ integration **17/17**;隔离冒烟 bundle **200 / 44338 字节**,含 `手动添�
 5. 复核 `npm view dsh-remote-tunnel version` 与 dist-tags;
 6. (可选)GUI「插件 → 添加插件 → `dsh-remote-tunnel`」装 npm 版做端到端复验 —— 注意这会把 junction 换成真实副本,
    之后仓库改动不再对桌面端生效(要回到开发态就再 `plugin add <仓库目录>`)。
+
+## 29. 发布前的隐私核查 —— npm 包不再包含本机 ssh 信息(2026-10-03,用户提问触发)
+
+**用户问题**:"上传的文件不包含我本地电脑的 ssh 信息吧?" —— 答案是**改之前会**:不是代码,而是 `files: ["docs"]` 把三份**本地历史文档**带进了包:
+
+| 文件 | 命中的本机信息(实测计数) |
+|---|---|
+| `docs/desktop-panel-progress.md` | XDU-zc ×18、82.157.182.71 ×3、101.43.145.128 ×3、remote_ssh_dsh ×22、E:\Applications ×17、/home/zc ×1、Super-Server ×8 |
+| `docs/desktop-panel-0.2.1-plan.md` | remote_ssh_dsh ×6、E:\Applications ×6、Super-Server ×1 |
+| `docs/desktop-web-refactor-route.md` | XDU-zc ×2、82.157.182.71 ×3、101.43.145.128 ×1、remote_ssh_dsh ×4、E:\Applications ×3、/home/zc ×1、Super-Server ×3 |
+
+**修法**:把这三份加进 `docs/.npmignore`(它们仍是仓库/GitHub 的项目历史,只是不再随 npm 分发):包 **34 → 31 文件**,docs/ 只剩 `promo.svg`、`registry-format{,.en}.md`、`upstream-report-config-default.md`。
+
+**复核(对真实 tarball 解包后全量扫描)**:`82.157.182.71` / `XDU-zc` / `101.43.145.128` / `remote_ssh_dsh` / `E:\Applications` / `/home/zc` / `Super-Server` / `dsh-data` **全部 0 命中**;
+`BEGIN … PRIVATE KEY`、`C:\Users`、`D:\App`、`id_rsa`、`id_ed25519`、`*.pem`、绝对盘符路径 **0 命中**;
+`credentials`/`password`/`api_key` 的少量命中都是 README 里的说明文字("不触碰凭据""passwordless ssh")与 bootstrap 脚本里的 `DEEPSEEK_API_KEY` 变量名,不含任何真实值。
+
+**运行时数据从不参与打包**:`config.yaml`(主机表)、`~/.ssh/config`、`known_hosts`、`.credentials.yaml` 都是插件在你机器上**运行时读取**的,仓库与包里没有副本。
+
+**⚠️ 待用户决定**:这三份文档**早已提交进公开 GitHub 仓库**,所以同样的信息在 GitHub 上是公开的(仅 npm 排除不等于"没公开")。可选:(a) 只做 npm 排除(现状);
+(b) 把仓库文档里的主机别名/IP 换成占位符(`lab` / `192.0.2.10`)—— 注意 git 历史里仍在,彻底清除要重写历史;(c) 把仓库改为私有。另:README 面板截图会显示主机行,拍摄前需要改名或打码。
