@@ -102,8 +102,12 @@ async function handle(connection, manager, services, settings, req, res) {
       case "state":
       case "status": {
         let hosts = [];
+        let discovery = { hosts: [], knownHosts: { path: null, exists: false, hashed: 0, revoked: 0 } };
         try {
           hosts = manager.listHosts();
+          // Candidates from ~/.ssh/known_hosts: what the user connected to at
+          // least once but has not managed here yet.
+          discovery = manager.discoverHosts();
         } catch (error) {
           hosts = [];
         }
@@ -116,6 +120,8 @@ async function handle(connection, manager, services, settings, req, res) {
             dock: settings?.dock !== false
           },
           hosts,
+          discovered: discovery.hosts,
+          discovery: discovery.knownHosts,
           tunnels: manager.listStatesLocal(),
           client: snapshot()
         });
@@ -171,10 +177,45 @@ async function handle(connection, manager, services, settings, req, res) {
         const result = await manager.down(alias, { keepService: url.searchParams.get("keep-service") === "1" });
         return sendJson(res, 200, { ok: true, alias, ...result });
       }
+      // Managing hosts writes the plugin's own config.yaml — never ~/.ssh.
+      // A write is spelled out by `confirm=1` so a prefetch or a link scanner
+      // cannot edit the file by accident; the admission above already keeps
+      // every cross-site caller out.
+      case "hosts/add": {
+        if (url.searchParams.get("confirm") !== "1") {
+          return sendJson(res, 400, { ok: false, error: "hosts/add writes the config — pass confirm=1" });
+        }
+        const added = manager.addHost({
+          alias: url.searchParams.get("alias") ?? "",
+          host: url.searchParams.get("host") ?? "",
+          port: url.searchParams.get("port") ?? 22,
+          user: url.searchParams.get("user") ?? undefined,
+          workspace: url.searchParams.get("workspace") ?? undefined,
+          overwrite: url.searchParams.get("overwrite") === "1"
+        });
+        return sendJson(res, 200, { ok: true, ...added });
+      }
+      case "hosts/remove": {
+        if (url.searchParams.get("confirm") !== "1") {
+          return sendJson(res, 400, { ok: false, error: "hosts/remove writes the config — pass confirm=1" });
+        }
+        const alias = url.searchParams.get("alias");
+        if (alias === null || alias.length === 0) {
+          return sendJson(res, 400, { ok: false, error: "missing ?alias=<alias>" });
+        }
+        const removed = manager.removeHost(alias);
+        return sendJson(res, 200, { ok: true, ...removed });
+      }
       default:
         return sendJson(res, 404, { ok: false, error: `unknown remote-tunnel action "${action}"` });
     }
   } catch (error) {
-    sendJson(res, 500, { ok: false, error: message(error) });
+    // A rejected form value is the caller's mistake, not a server fault.
+    const code = error instanceof TunnelError ? error.code : undefined;
+    const status = code === "E_USAGE" ? 400
+      : code === "E_HOST_EXISTS" ? 409
+        : code === "E_UNKNOWN_HOST" ? 404
+          : 500;
+    sendJson(res, status, { ok: false, error: message(error), code: code ?? null });
   }
 }

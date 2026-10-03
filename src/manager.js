@@ -1,8 +1,8 @@
 import os from "node:os";
 import { spawn } from "node:child_process";
 import { TunnelError } from "./errors.js";
-import { loadConfig } from "./config.js";
-import { readSshConfig, findSshAlias } from "./ssh-config.js";
+import { loadConfig, saveConfig, validateHostInput, upsertHost, dropHost } from "./config.js";
+import { readSshConfig, findSshAlias, readKnownHosts } from "./ssh-config.js";
 import { execRemote, spawnSsh, canSudo, remoteFacts } from "./ssh.js";
 import {
   remoteAllocate, remoteReadRegistry, remoteUpdateRegistry, remoteUpdateRegistryBatch,
@@ -103,6 +103,60 @@ export class TunnelManager {
       });
     }
     return [...merged.values()].sort((a, b) => a.alias.localeCompare(b.alias));
+  }
+
+  /**
+   * Candidates from ~/.ssh/known_hosts that no managed host already covers.
+   *
+   * These are candidates, not hosts: known_hosts proves a connection happened,
+   * but carries no user, identity or workspace, so nothing here is resolvable
+   * until it is added to the plugin config. A host the user already manages
+   * (by host:port) is filtered out, so the list only ever offers what is new.
+   */
+  discoverHosts() {
+    const known = readKnownHosts();
+    const covered = new Set(this.listHosts().map((entry) => `${entry.host}:${entry.port}`));
+    return {
+      hosts: known.hosts
+        .filter((entry) => !covered.has(`${entry.host}:${entry.port}`))
+        .map((entry) => ({ ...entry, origin: "known-hosts", managed: false })),
+      knownHosts: { path: known.path, exists: known.exists, hashed: known.hashed, revoked: known.revoked }
+    };
+  }
+
+  /**
+   * Add (or replace) one plugin-config host.
+   *
+   * The CLI's `hosts add` and the sidebar panel share this method so both
+   * validate identically; the config is re-read first, so a concurrent edit
+   * (another window, the CLI) is never clobbered by a stale in-memory copy.
+   */
+  addHost(input) {
+    const entry = validateHostInput(input);
+    if (findSshAlias(readSshConfig(), entry.alias) !== undefined) {
+      throw new TunnelError(`"${entry.alias}" is already defined in ~/.ssh/config — pick another alias`, { code: "E_HOST_EXISTS" });
+    }
+    const { config } = loadConfig(this.home);
+    upsertHost(config, entry, { overwrite: input.overwrite === true });
+    const path = saveConfig(this.home, config);
+    this.cfg = config;
+    return { alias: entry.alias, host: entry.host, port: entry.port, path };
+  }
+
+  /** Remove one plugin-config host; ~/.ssh/config entries stay theirs. */
+  removeHost(alias) {
+    const { config } = loadConfig(this.home);
+    try {
+      dropHost(config, alias);
+    } catch (error) {
+      if (findSshAlias(readSshConfig(), alias) !== undefined) {
+        throw new TunnelError(`"${alias}" is defined in ~/.ssh/config — edit that file instead`, { code: "E_UNKNOWN_HOST" });
+      }
+      throw error;
+    }
+    const path = saveConfig(this.home, config);
+    this.cfg = config;
+    return { alias, path };
   }
 
   /** hostDef + facts + registry handle + unit scope for one alias (cached). */

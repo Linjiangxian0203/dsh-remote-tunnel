@@ -505,3 +505,47 @@ Get-NetTCPConnection -State Listen -LocalPort 19399 | Select-Object OwningProces
 **纪律**:每改一次 client.js 都要重启宿主才能冒烟(§18 的 rev 机制)——本轮照做,否则看到的会是 404。
 
 **还没做**:3c-3a(`known_hosts` 只读发现)、3c-3b(`hosts add/remove` 写路由 + 面板候选/增删 UI)、README/截图、发版。
+
+
+## 20. 0.2.1 阶段 3+4 完成 —— ~/.ssh 主机发现 + 主机增删(2026-10-03)
+
+**口径(用户拍板)**:侧栏自动列出"本地连接过的主机",并能在面板里增删;`~/.ssh` **只读**,写盘只写插件自己的 `config.yaml`。
+
+**宿主半(5 个文件)**
+
+| 文件 | 改动 |
+|---|---|
+| `src/ssh-config.js` | 新增 `knownHostsPath()` / `parseKnownHosts()` / `readKnownHosts()`:明文条目 → `{alias, host, port}`;`[v6]:port`、`host:port` 解析;逗号多主机拆分;**哈希条目 `\|1\|…` 只计数不猜**(`hashed`)、`@revoked` 跳过并计数、`@cert-authority` 保留、通配符丢弃;按 host:port 去重 |
+| `src/config.js` | 新增纯函数 `validateHostInput()`(别名/主机/端口/用户/workspace 白名单校验)、`upsertHost()`(默认拒绝覆盖,`overwrite: true` 才替换)、`dropHost()` |
+| `src/manager.js` | 新增 `discoverHosts()`(known_hosts 候选,按 host:port 过滤掉已管理主机)、`addHost()` / `removeHost()`(**先重读 config.yaml 再写**,避免并发覆盖;拒绝与 `~/.ssh/config` 同名的别名;拒绝删除 ssh-config 条目并给出提示) |
+| `src/web.js` | `/status` 增加 `discovered[]` 与 `discovery{path,exists,hashed,revoked}`;新增**写路由** `hosts/add`、`hosts/remove`(要求 `confirm=1`);错误码映射 E_USAGE→400 / E_HOST_EXISTS→409 / E_UNKNOWN_HOST→404 / 其它→500 |
+| `src/cli.js` | `hosts` 列表追加 "discovered in ~/.ssh/known_hosts" 区;`hosts add` / `hosts rm` 改走 manager 同一路径(校验与行为跟面板完全一致) |
+
+**客户端半**:面板新增两个区块 —— 「已配置主机 / managed hosts」(plugin-config 的给两步「删除」,ssh-config 的标 `~/.ssh/config` 只读)、
+「发现的主机 / discovered in ~/.ssh」(最多列 8 台 + "还有 N 台",每台一个「添加」);哈希条目数量单列一行提示。
+
+**为什么写路由用 GET + `confirm=1` 而不是 POST**:0.2.0 的 `up`/`down` 已经是 GET(真机 GUI 里实测可用),而 POST 尚未在桌面 carrier 上验证过;
+`admit()`(Host/Origin 围栏 + 浏览器会话 cookie)对两者一视同仁,`confirm=1` 只防 prefetch/链接扫描误触。等真机验证过 POST 再迁不迟。
+
+**测试**:unit **28/28**(21 → +4 宿主端:known_hosts 解析、输入校验、upsert/drop + 3 条客户端;其中面板用例断言了两个写 URL 的精确形态);
+integration **17/17**(TEMP 重定向)。
+
+**冒烟(隔离 web profile 的宿主半写路由)**:为不碰真实配置,临时把 `_smoke` 的 `cordis.patch.yml` 里 `home` 指向 `G:\remote_ssh_dsh\_smoke\state-write`,重启 19399 后实测:
+
+| 请求 | 结果 |
+|---|---|
+| `GET /remote-tunnel/status` | **200**,`hosts=1`(XDU-zc,ssh-config)、`discovered=3`(明文 known_hosts)、`discovery.exists=true`、`hashed=0` |
+| `hosts/add` 不带 confirm | **400** `hosts/add writes the config — pass confirm=1` |
+| `hosts/add?confirm=1` | **200**,写入隔离 config.yaml |
+| 重复 add | **409** `E_HOST_EXISTS` |
+| 端口 70000 | **400** `E_USAGE` |
+| `hosts/remove` 不带 confirm | **400** |
+| `hosts/remove?confirm=1` | **200**,隔离 config.yaml 回到 `hosts: {}` |
+| 再次 remove | **404** `E_UNKNOWN_HOST` |
+| remove `XDU-zc`(ssh-config 条目) | **404** `"XDU-zc" is defined in ~/.ssh/config — edit that file instead` |
+| 未知 action | **404** |
+
+**安全核对**:全程结束后,真实配置 `E:\Applications\dsh-data\remote-tunnel\config.yaml` 的 MD5 与动手前一致
+(`15DFF8407C6B73762B667B02A2845FEC`);`~/.ssh` 全程只读。冒烟后 `_smoke` 的 patch 已改回真实 `home`,19399 重启后 `status` 200 / `discovered=3`。
+
+**下一步**:阶段 5(README 双语「侧栏面板」章节 + CHANGELOG + `.github/releases/v0.2.1.md` + prompt 文档进 `.gitignore`),然后给用户重启验收包。
