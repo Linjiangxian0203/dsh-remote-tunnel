@@ -1,5 +1,8 @@
 # dsh-remote-tunnel — 桌面端面板:进度与验收断点
 
+> **项目规矩(必读)**:[AGENTS.md](../AGENTS.md) —— 第 1 条:本机 ssh 信息(别名 / 服务器地址 / known_hosts / 本机绝对路径 / 远端主机名)
+> **一律不得进入仓库文件、测试夹具、文档、截图或 npm 包**;具体要扫的值在本地(被忽略)的 `docs/local-privacy-check.md`。
+>
 > 本文件是**断点文档**,给"重启桌面端之后的新会话"用。配套路线书:
 > [`desktop-web-refactor-route.md`](./desktop-web-refactor-route.md);勘查结论:
 > `G:\remote_ssh_dsh\_recon\desktop-app-report.md`。
@@ -734,6 +737,30 @@ integration **17/17**;隔离冒烟 bundle **200 / 44338 字节**,含 `手动添�
 5. 复核 `npm view dsh-remote-tunnel version` 与 dist-tags;
 6. (可选)GUI「插件 → 添加插件 → `dsh-remote-tunnel`」装 npm 版做端到端复验 —— 注意这会把 junction 换成真实副本,
    之后仓库改动不再对桌面端生效(要回到开发态就再 `plugin add <仓库目录>`)。
+
+## 30. 隐私核查与"项目记忆"规则(2026-10-03,用户提问触发)
+
+**用户提问**:(1) 上传的 npm 包是否含本机 ssh 信息;(2) GitHub 上已上传的本机路径能否撤回;(3) 以后把"ssh 信息不要上传"写进项目记忆。
+
+**盘点结果(实测)**
+
+| 位置 | 状态 |
+|---|---|
+| npm 0.2.1(未发布,本轮) | 已把三份本地历史文档加进 `docs/.npmignore` → **31 文件,复扫 8 个敏感串全部 0 命中**,无私钥/凭据/绝对路径 |
+| **npm 0.2.0(已发布 npm latest)** | **仍含**:progress.md 与 web-refactor-route.md 里有 `XDU-zc` ×12、`82.157.182.71` ×5、`remote_ssh_dsh` ×20、`101.43.145.128` ×1、`/home/zc` ×1、`being-Super-Server` ×9;0.2.0 发布于 2026-10-02 19:08,**在 npm 72 小时 unpublish 窗口内** |
+| GitHub `main`(已推送) | 同样三份文档(plan/progress/web-refactor-route),最早 **2026-10-02**(43c1025 起)公开,共 11 个提交涉及 |
+| `src/`(代码) | **干净**:只有通用逻辑,运行时才读 `config.yaml`/`~/.ssh`;仓库与包里没有本机数据副本 |
+| `test/unit.test.js` | 我自己写进去的真实 known_hosts IP 与主机别名(**未推送**),已换成占位符 `192.0.2.77` / `lab`,复扫 0 命中,单测仍 35/35 |
+
+**已落地的规则(项目记忆)**
+- 新增 [`AGENTS.md`](../AGENTS.md):第 1 条即"永不发布本机 ssh 信息"(别名 / 地址 / known_hosts / 本机绝对路径 / 远端主机名 / 凭据),要求用占位符(`lab`、`192.0.2.10`、`<repo>`、`<DSH_HOME>`),并给出提交前扫描命令;第 2 条记录本项目会咬人的机制(Junction、bundle rev、注册生命周期、`apply` 作用域坑、路由 `confirm=1`、环境限制、发版顺序)。
+- 新增 `docs/local-privacy-check.md`(**git-ignored**,只在本地):列出要扫的具体值与可执行的 tarball 复核命令。
+- `.gitignore` 增加该本地文件;`docs/.npmignore` 继续排除本地历史文档。
+
+**待用户决定(GitHub 侧撤回方式)**
+(a) 保持现状(仅 npm 包干净);(b) 清洗当前文件为占位符(历史里仍在);(c) 仓库改私有(最彻底、零风险,但 npm 的 repository 链接失效);
+(d) 重写历史 + force push(彻底但代价大:所有 commit SHA 与 tag 变化,v0.1.x/v0.2.0 需重建,且 GitHub 旧对象可能短时可访问)。
+**npm 侧**:建议顺序 = 先发 0.2.1(干净)→ 再 `npm unpublish dsh-remote-tunnel@0.2.0`(72 小时窗口内;已下载者与镜像仍可能保留副本)。
 
 ## 29. 发布前的隐私核查 —— npm 包不再包含本机 ssh 信息(2026-10-03,用户提问触发)
 
