@@ -280,13 +280,18 @@ function loadClientBundle() {
   const window = { __ModuleLoader__: { load: (definition) => { captured = definition; } } };
   const fetchStub = async (url) => {
     state.requests.push(String(url));
+    // `legacy` reproduces a 0.2.0 host half: no discovered/discovery fields.
     const body = String(url).includes("/status")
       ? {
         ok: true,
         config: { openIn: "ask", autoOpen: false, dock: state.dock },
         hosts: state.hosts,
-        discovered: state.discovered,
-        discovery: { path: "C:\\Users\\me\\.ssh\\known_hosts", exists: true, hashed: state.hashed, revoked: 0 },
+        ...(state.legacy === true
+          ? {}
+          : {
+            discovered: state.discovered,
+            discovery: { path: "C:\\Users\\me\\.ssh\\known_hosts", exists: true, hashed: state.hashed, revoked: 0 }
+          }),
         tunnels: state.tunnels
       }
       : { ok: true, alias: "lab", authUrl: "http://127.0.0.1:3081/?token=t" };
@@ -560,6 +565,57 @@ test("client bundle: the pane lists hosts, offers discovered candidates and spel
   react.reset();
   const sshTree = await renderTree(react, pane.Component, props);
   assert.equal(findElement(sshTree, (element) => element.type === "button" && collectStrings(element).includes("删除")), undefined);
+  react.reset();
+});
+
+test("client bundle: the pane follows the selected host, not the first tunnel", async () => {
+  const load = loadClientBundle();
+  load.state.hosts = [
+    { alias: "lab", host: "10.0.0.1", port: 22, origin: "plugin-config" },
+    { alias: "prod", host: "10.0.0.2", port: 2200, origin: "ssh-config" }
+  ];
+  load.state.tunnels = [{ alias: "prod", host: "10.0.0.2", remotePort: 3090, url: "http://127.0.0.1:3091", workspace: null }];
+  load.state.discovered = [];
+  const { react, registered } = await mountClient(load);
+  const pane = registered.find((item) => item.definition.name === TAB_PANE);
+  react.reset();
+  const props = { useTabInfo: () => ({ tab: { navigation: { params: {} } } }) };
+  const tree = await renderTree(react, pane.Component, props);
+  const text = collectStrings(tree).join(" | ");
+  // The live tunnel belongs to `prod`, which is the active selection.
+  assert.ok(text.includes("隧道:prod"), text);
+  assert.ok(text.includes("已连接 / connected"), text);
+  // Switching to the host without a tunnel must offer up and withdraw down.
+  const select = findElement(tree, (element) => element.type === "select");
+  assert.ok(select, "two hosts must offer a picker");
+  select.props.onChange({ target: { value: "lab" } });
+  react.begin();
+  const switched = pane.Component(props);
+  react.drain();
+  const switchedText = collectStrings(switched).join(" | ");
+  assert.ok(switchedText.includes("未连接 / not connected"), switchedText);
+  assert.ok(switchedText.includes("启动隧道 / up"), switchedText);
+  assert.ok(!switchedText.includes("断开连接 / down"), switchedText);
+  react.reset();
+});
+
+test("client bundle: the pane survives a cold status and a 0.2.0 host half", async () => {
+  const load = loadClientBundle();
+  const { react, registered } = await mountClient(load);
+  const pane = registered.find((item) => item.definition.name === TAB_PANE);
+  react.reset();
+  // Cold render, and no useTabInfo prop at all: the pane must say so, not throw.
+  const cold = pane.Component({});
+  react.drain();
+  assert.ok(collectStrings(cold).join(" | ").includes("读取状态中…"), "a cold pane must report that it is reading");
+  // A 0.2.0 host half answers without discovered/discovery; the pane must not care.
+  load.state.legacy = true;
+  react.reset();
+  const legacy = await renderTree(react, pane.Component, { useTabInfo: () => ({ tab: { navigation: { params: {} } } }) });
+  const text = collectStrings(legacy).join(" | ");
+  assert.ok(text.includes("已配置主机 / managed hosts"), text);
+  assert.ok(!text.includes("发现的主机"), "no discovery section without a discovered list");
+  assert.ok(!text.includes("known_hosts 记录已哈希"), text);
   react.reset();
 });
 

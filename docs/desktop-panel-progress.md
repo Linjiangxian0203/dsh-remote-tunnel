@@ -626,6 +626,20 @@ git checkout main                      # 工作树立即回到 0.2.0 内容
 `add XDU-zc`(不带 overwrite)→ **409**;`add XDU-zc&overwrite=1` → **200**;`remove` → **200**,隔离 config.yaml 回到 `hosts: {}`;
 `status` → 200 / `discovered=3` / 无 discovery 错误。unit **28/28**、integration **17/17**。
 
+## 24. 0.2.1 重启前加固(2026-10-03)
+
+等用户重启期间,把**不依赖真机**的风险点补进单测(unit 28 → **30**):
+
+- **多主机跟随**:两台主机 + 一条属于 `prod` 的隧道 → 面板显示 `隧道:prod`(而不是"第一条隧道");
+  用主机下拉切到没有隧道的 `lab` 后 → 变「未连接 / not connected」+「启动隧道 / up」,且**不再出现**「断开连接 / down」。
+- **冷启动**:`status === null` 且框架没注入 `useTabInfo` 时,面板渲染「读取状态中… / reading status」而不是抛错。
+- **混合版本**:模拟"0.2.0 宿主半 + 0.2.1 客户端半"(`status` 不带 `discovered`/`discovery`)→ 面板照常渲染已配置主机区,
+  不渲染发现区、也不显示哈希提示 ⇒ 升级过程中不会白屏。
+
+顺带确认:桌面端 HTTP 面(`/`、`/index.html`)一律 **401**、`/plugins/…` 无 rev 一律 **404**
+⇒ 重启后**无法**从命令行免鉴权读它的 bundle / boot graph,真机验收只能靠 GUI 现象(以及用户反馈);
+这也反证 3e 的准入围栏在桌面端是生效的。
+
 ### 验收通过后的发版顺序(阶段 7)
 
 1. `git merge --ff-only feat/0.2.1-remote-hosts-panel`(保持线性历史;树内容 = 验收的那个 commit);
