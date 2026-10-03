@@ -1,0 +1,10 @@
+# Local scratch material — the user's own notes, deliberately git-ignored and
+# never published.
+#
+# Why this file lives in docs/ instead of the package root: a root .npmignore
+# does NOT override package.json's "files" field, but one in a subdirectory does.
+# Without it, `files: ["docs"]` would publish these three files (npm pack reads
+# the working tree, so .gitignore alone does not keep them out).
+desktop-panel-kickoff-prompt.md
+desktop-panel-prompt-short.md
+optimization-plan.md
