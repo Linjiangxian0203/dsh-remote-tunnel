@@ -662,6 +662,28 @@ git checkout main                      # 工作树立即回到 0.2.0 内容
 
 **待办**:用户拍板图三的处理方式(只读文案 + 「隐藏」 / 「接管」);然后**再重启一次**验收;通过后才合并 main、打 tag、发 npm。
 
+## 26. 隐藏 / 忽略 / 恢复(用户拍板 (a)+(b),2026-10-03)
+
+**问题**:来自 ~/.ssh/config 的主机不能删(承诺只读),而「发现的主机」里也没有「挪开」的手段 —— 用户需要在面板里管理这两类。
+
+**做法**
+- 新增配置键 hiddenHosts: [](只写插件自己的 config.yaml;normalizeConfig 只收非空字符串);
+- 纯函数 validateHideKey() / toggleHidden()(键 ≤ 200 字符、去重、可逆);
+- manager.hiddenKeys() / listVisibleHosts() / hideHost();**隐藏一个不在列表里的键 → 404 E_UNKNOWN_HOST**(防陈旧 UI 塞垃圾);
+- /status 增加 hidden[];新路由 GET /remote-tunnel/hosts/hide?confirm=1&key=<alias|host:port>&hidden=0|1;发现候选带 key(host:port);
+- CLI hosts **仍列出全部主机**,末尾提示有多少条在面板里被隐藏(隐藏只是面板偏好);
+- 客户端:ssh-config 行加「隐藏」、发现行加「忽略」、新增「已隐藏 / hidden in this pane」区(每条一个「恢复」)。
+
+**验证**(隔离 home 冒烟):hide 无 confirm → **400**;隐藏 XDU-zc → **200**,hosts 为空、hidden=["XDU-zc"];恢复 → **200**,主机回来;
+忽略候选 101.43.145.128:6104 → **200**,discovered 少一条;恢复 → 回来;隐藏不存在的键 → **404**;
+bundle **200 / 36195 字节**含 隐藏/忽略/已隐藏;unit **32/32**、integration **17/17**。
+
+**⚠️ 排查记录:真实 config.yaml 在 13:54:56 被重写过一次**(哈希 15DFF8… → 7A6D72…,内容仍是 hosts: {},用户的 localWaitSeconds: 60 保留)。
+证据指向**用户在自己 GUI 里点了「添加」再「删除」**(0.2.1 面板支持的操作,写的就是插件自己的 config.yaml);
+本轮我的冒烟全部跑在隔离 home —— 隔离文件带 hiddenHosts: [] 且是默认 localWaitSeconds: 15,与真实文件不同。已向用户求证。
+
+**待办**:用户决定「首次使用引导 / 手动添加主机表单」是否进 0.2.1;然后重启验收。
+
 ### 验收通过后的发版顺序(阶段 7)
 
 1. `git merge --ff-only feat/0.2.1-remote-hosts-panel`(保持线性历史;树内容 = 验收的那个 commit);
