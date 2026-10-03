@@ -612,6 +612,20 @@ git checkout main                      # 工作树立即回到 0.2.0 内容
 - **修法**:新建 `docs/.npmignore` 列掉这三个文件 → 重新 `npm pack --dry-run`:**34 个文件 / 116.2kB**,三个文件消失,其余不变。
   根 `.npmignore` 已删除(留着只会误导,原因写在 `docs/.npmignore` 的注释里)。
 
+## 23. 0.2.1 分支自查(发版前,2026-10-03)
+
+三处修正:
+
+1. **`/status` 里两个 try 分开**:原来 `listHosts()` 与 `discoverHosts()` 共用一个 try —— known_hosts 读不动(权限/同名目录)会把**主机列表一起清空**。
+   现在 discovery 有自己的 try,失败只把 `discovered` 置空并在 `discovery.error` 带上原因。
+2. **`hosts add` 的覆盖语义**:与 `~/.ssh/config` 同名不再是硬错误 —— CLI 加 `--force`(HTTP 侧 `overwrite=1`)才允许覆盖
+   (`resolveHost` 优先插件配置,这是有意的 override);**面板永远不带 overwrite**,所以"点一下添加"不可能悄悄遮蔽用户手写的主机。
+3. **删掉 `cli.js` 里已用不到的 `saveConfig` 导入**。
+
+回归证据(隔离 home 冒烟,重启服务后):
+`add XDU-zc`(不带 overwrite)→ **409**;`add XDU-zc&overwrite=1` → **200**;`remove` → **200**,隔离 config.yaml 回到 `hosts: {}`;
+`status` → 200 / `discovered=3` / 无 discovery 错误。unit **28/28**、integration **17/17**。
+
 ### 验收通过后的发版顺序(阶段 7)
 
 1. `git merge --ff-only feat/0.2.1-remote-hosts-panel`(保持线性历史;树内容 = 验收的那个 commit);

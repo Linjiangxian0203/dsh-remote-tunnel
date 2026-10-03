@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { parseCmdline } from "@deepseek-ai/dsh-cmdline";
 import { TunnelManager } from "./manager.js";
 import { TunnelError } from "./errors.js";
-import { loadConfig, saveConfig } from "./config.js";
+import { loadConfig } from "./config.js";
 import { parsePort, parseIntArg } from "./cli-args.js";
 
 // dsh-remote-tunnel CLI half: the commander program for a dedicated profile.
@@ -122,6 +122,7 @@ Commands:
   hostsCmd.command("add <alias>")
     .description("define a remote host in the plugin config")
     .requiredOption("--host <host>", "remote host name or IP")
+    .option("--force", "replace an existing definition, including one that shadows an ~/.ssh/config alias")
     .option("--port <port>", "ssh port", "22")
     .option("--user <user>", "ssh login user")
     .option("--workspace <dir>", "workspace root for the remote dsh web (default: remote home)")
@@ -132,7 +133,8 @@ Commands:
           host: options.host,
           port: parsePort(options.port, "--port"),
           user: options.user,
-          workspace: options.workspace
+          workspace: options.workspace,
+          overwrite: options.force === true
         });
         reporter.out(`host ${result.alias} added (${result.path})`);
       }).then(() => exit?.(0), (error) => { printError(error); exit?.(1); });

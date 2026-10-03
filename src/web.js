@@ -102,14 +102,20 @@ async function handle(connection, manager, services, settings, req, res) {
       case "state":
       case "status": {
         let hosts = [];
-        let discovery = { hosts: [], knownHosts: { path: null, exists: false, hashed: 0, revoked: 0 } };
         try {
           hosts = manager.listHosts();
-          // Candidates from ~/.ssh/known_hosts: what the user connected to at
-          // least once but has not managed here yet.
-          discovery = manager.discoverHosts();
         } catch (error) {
           hosts = [];
+        }
+        // Candidates from ~/.ssh/known_hosts: what the user connected to at
+        // least once but has not managed here yet. Its own try on purpose — an
+        // unreadable known_hosts (permissions, a directory in its place) must
+        // not blank the host list the rest of the pane depends on.
+        let discovery = { hosts: [], knownHosts: { path: null, exists: false, hashed: 0, revoked: 0 } };
+        try {
+          discovery = manager.discoverHosts();
+        } catch (error) {
+          discovery = { hosts: [], knownHosts: { path: null, exists: false, hashed: 0, revoked: 0, error: message(error) } };
         }
         return sendJson(res, 200, {
           ok: true,

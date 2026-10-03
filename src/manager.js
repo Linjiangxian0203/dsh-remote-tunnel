@@ -133,8 +133,15 @@ export class TunnelManager {
    */
   addHost(input) {
     const entry = validateHostInput(input);
-    if (findSshAlias(readSshConfig(), entry.alias) !== undefined) {
-      throw new TunnelError(`"${entry.alias}" is already defined in ~/.ssh/config — pick another alias`, { code: "E_HOST_EXISTS" });
+    // Shadowing an ~/.ssh/config alias is a legitimate override (resolveHost
+    // prefers the plugin config), but it has to be asked for: the panel never
+    // sends overwrite, so a click on a discovered host can never shadow a host
+    // the user defined by hand.
+    if (input.overwrite !== true && findSshAlias(readSshConfig(), entry.alias) !== undefined) {
+      throw new TunnelError(
+        `"${entry.alias}" is already defined in ~/.ssh/config — pick another alias, or pass --force to override it`,
+        { code: "E_HOST_EXISTS" }
+      );
     }
     const { config } = loadConfig(this.home);
     upsertHost(config, entry, { overwrite: input.overwrite === true });
