@@ -155,6 +155,17 @@ window.__ModuleLoader__.load({
         color: "var(--dsw-alias-label-primary, inherit)",
         background: "var(--dsw-alias-bg-base, #1c1c20)"
       },
+      // The add-a-host form: same surface/ink treatment as the picker, so the
+      // fields stay readable in either theme.
+      input: {
+        flex: "1 1 auto", minWidth: "0", font: "inherit", fontSize: "12px", padding: "3px 6px", borderRadius: "8px",
+        color: "var(--dsw-alias-label-primary, inherit)",
+        background: "var(--dsw-alias-bg-base, #1c1c20)",
+        border: "1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.4))"
+      },
+      formRow: { display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" },
+      formLabel: { flex: "0 0 auto", width: "76px", opacity: 0.7 },
+      guideLine: { fontSize: "12px", lineHeight: "18px" },
       muted: { opacity: 0.65, fontSize: "12px" },
       error: { color: "var(--dsw-alias-label-error, #d4380d)", fontSize: "12px" },
       // The always-on strip above the composer: one compact line, the same
@@ -271,6 +282,10 @@ window.__ModuleLoader__.load({
       var pickState = React.useState(preferred);
       var removeState = React.useState(null);
       var pendingRemove = removeState[0], setPendingRemove = removeState[1];
+      var formState = React.useState(null);
+      var formErrState = React.useState(null);
+      var form = formState[0], setForm = formState[1];
+      var formError = formErrState[0], setFormError = formErrState[1];
       var busy = busyState[0], setBusy = busyState[1];
       var error = errorState[0], setError = errorState[1];
       var confirming = confirmState[0], setConfirming = confirmState[1];
@@ -316,7 +331,7 @@ window.__ModuleLoader__.load({
 
       function start() {
         if (alias === undefined) {
-          setError("还没有可用主机 —— 在 ~/.ssh/config 里定义一个,或用 hosts add 添加");
+          setError("先添加一台主机:点面板里的「+ 手动添加主机」,或从「发现的主机」一键添加");
           return;
         }
         work("up", callHost("up?host=" + encodeURIComponent(alias)));
@@ -325,6 +340,65 @@ window.__ModuleLoader__.load({
       function stop() {
         if (alias === undefined) return;
         work("down", callHost("down?host=" + encodeURIComponent(alias)));
+      }
+
+      // Adding a host by hand. The rules mirror the host half's own validation,
+      // so an obviously bad alias never leaves the pane — and the server checks
+      // again, which is what keeps the two paths honest.
+      var ALIAS_INPUT = /^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$/;
+      var HOST_INPUT = /^[A-Za-z0-9._:\[\]-]{1,255}$/;
+
+      function toggleForm() {
+        if (form !== null) {
+          setForm(null);
+          setFormError(null);
+          return;
+        }
+        setForm({ alias: "", host: "", port: "22", user: "", workspace: "" });
+        setFormError(null);
+      }
+
+      function updateForm(field, value) {
+        var next = Object.assign({}, form);
+        next[field] = value;
+        setForm(next);
+      }
+
+      function submitForm() {
+        var alias = String(form.alias || "").trim();
+        var host = String(form.host || "").trim();
+        var port = Number.parseInt(String(form.port || "22").trim(), 10);
+        var user = String(form.user || "").trim();
+        var workspace = String(form.workspace || "").trim();
+        if (!ALIAS_INPUT.test(alias)) {
+          setFormError("别名:字母/数字/._@-,首字符是字母或数字,最长 64");
+          return;
+        }
+        if (!HOST_INPUT.test(host)) {
+          setFormError("主机:域名、IPv4 或 [IPv6]");
+          return;
+        }
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+          setFormError("端口:1-65535");
+          return;
+        }
+        setFormError(null);
+        var query = "hosts/add?confirm=1&alias=" + encodeURIComponent(alias)
+          + "&host=" + encodeURIComponent(host) + "&port=" + encodeURIComponent(String(port));
+        if (user !== "") query += "&user=" + encodeURIComponent(user);
+        if (workspace !== "") query += "&workspace=" + encodeURIComponent(workspace);
+        // The form closes only on success, so a rejected field keeps its text.
+        work("form", callHost(query).then(function (result) { setForm(null); return result; }));
+      }
+
+      function formRow(field, label, placeholder) {
+        return h("div", { key: field, style: S.formRow }, [
+          h("span", { key: "l", style: S.formLabel }, label),
+          h("input", {
+            key: "i", style: S.input, value: form[field], placeholder: placeholder,
+            onChange: function (event) { updateForm(field, event.target.value); }
+          })
+        ]);
       }
 
       function openIn(mode) {
@@ -443,7 +517,31 @@ window.__ModuleLoader__.load({
           return h("div", { key: "m-" + entry.alias, style: S.hostRow }, row);
         });
         children.push(h("div", { key: "managed", style: S.section },
-          [h("div", { key: "t", style: S.sectionTitle }, "已配置主机 / managed hosts")].concat(managedRows)));
+          [h("div", { key: "t", style: S.sectionHead }, [
+            h("span", { style: S.sectionTitle }, "已配置主机 / managed hosts"),
+            h("button", {
+              key: "addhost", style: S.dockButton, disabled: busy !== "",
+              onClick: toggleForm
+            }, form === null ? "+ 手动添加主机" : "收起表单")
+          ])].concat(managedRows)));
+
+        // The first-run path: a host can be defined here, without the CLI.
+        if (form !== null) {
+          children.push(h("div", { key: "form", style: S.section }, [
+            h("div", { key: "t", style: S.sectionTitle }, "手动添加主机 / add a host"),
+            formRow("alias", "别名", "lab"),
+            formRow("host", "主机", "192.0.2.10"),
+            formRow("port", "端口", "22"),
+            formRow("user", "用户", "留空 = ssh 默认"),
+            formRow("workspace", "workspace", "留空 = 远端 home"),
+            formError !== null ? h("div", { key: "e", style: S.error }, formError) : null,
+            h("div", { key: "actions", style: S.row }, [
+              h("button", { key: "ok", style: S.button, disabled: busy !== "", onClick: submitForm },
+                busy === "form" ? "添加中…" : "添加"),
+              h("button", { key: "cancel", style: S.button, disabled: busy !== "", onClick: toggleForm }, "取消")
+            ])
+          ]));
+        }
 
         // ~/.ssh/known_hosts proves a connection happened; these become usable
         // once added, so the pane offers them with one click. The section is
@@ -501,8 +599,14 @@ window.__ModuleLoader__.load({
         }
       }
       if (status !== null && hosts.length === 0) {
-        children.push(h("div", { key: "empty", style: S.muted },
-          "没有可用主机 —— 在 ~/.ssh/config 里定义一个,或用 hosts add 添加"));
+        children.push(h("div", { key: "guide", style: S.section }, [
+          h("div", { key: "t", style: S.sectionTitle }, "还没有任何主机 —— 三步开始 / no host yet"),
+          h("div", { key: "s1", style: S.guideLine }, "① 添加主机:点「+ 手动添加主机」填表,或从「发现的主机」一键添加"),
+          h("div", { key: "s2", style: S.guideLine }, "② 启动隧道 / up:在本机开一条到服务器的 SSH 隧道"),
+          h("div", { key: "s3", style: S.guideLine }, "③ 在侧栏打开:远端 dsh web 就出现在这个面板里"),
+          h("div", { key: "pre", style: S.muted },
+            "前提:本机 ssh <别名> 能登录;远端要装好 dsh(命令行:dsh --profile remote bootstrap <别名>)")
+        ]));
       }
       if (error !== null) children.push(h("div", { key: "error", style: S.error }, error));
       return h("div", { style: S.card }, children);
