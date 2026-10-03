@@ -3,7 +3,7 @@
 > 本文件是「技术路线书」,不是实施记录。写于 2026-10-02,基于对**本机实机**的只读勘查 + **官方文档**
 > (deepseek-harness.github.io)核对。所有结论都标了证据来源;推断项标 `INFERRED`,未能验证项标 `UNVERIFIED`。
 >
-> 勘查产物:`G:\remote_ssh_dsh\_recon\desktop-app-report.md`(桌面端 390 行)、
+> 勘查产物:`<workspace>\_recon\desktop-app-report.md`(桌面端 390 行)、
 > `_recon\compat-report.md`(插件 API 兼容性 437 行)。两份报告均由只读子代理产出,插件源码未被改动。
 
 ---
@@ -36,23 +36,23 @@
 
 | 项 | 值 | 来源 |
 |---|---|---|
-| 桌面端 | `E:\Applications\dsh`,Electron 44,包 `@deepseek-ai/dsh-desktop` **0.2.0-rc.2** | asar `package.json` |
-| 桌面宿主数据目录 | `E:\Applications\dsh-data`(`DSH_HOME`) | 目录内容 + 进程路径 `INFERRED` |
+| 桌面端 | `<DSH_APP>`,Electron 44,包 `@deepseek-ai/dsh-desktop` **0.2.0-rc.2** | asar `package.json` |
+| 桌面宿主数据目录 | `<DSH_HOME>`(`DSH_HOME`) | 目录内容 + 进程路径 `INFERRED` |
 | GUI 地址 | `http://127.0.0.1:19387`,**端口硬编码** | `desktop-host-index.js:216-245` |
 | 渲染器 origin | `dsh-app://app/`,非 http | `preload-app.cjs:876` |
 | 内置运行时 | asar 内 287 个 `@deepseek-ai/*` = **0.2.0-rc.2** | asar `dsh/package.json` |
 | CLI profile 运行时 | `profiles/node_modules` 235 个包 = **0.1.7-rc.1** | 实读 package.json |
 | 全局 npm dsh | 0.1.7-rc.1 | `dsh --version` |
 | npm `latest` | **0.2.0-rc.2** | registry dist-tags |
-| 远程服务器 | **`XDU-zc` = 82.157.182.71:6204,用户 zc**(旧 101.43.145.128:6104 租期已到) | 实测(密钥登录通过) |
-| 服务器侧运行时 | `being-Super-Server`,node v22.23.2,dsh **0.1.5-rc.2** | 实测 |
+| 远程服务器 | **`lab` = 192.0.2.10:6204,用户 zc**(旧 192.0.2.55:6104 租期已到) | 实测(密钥登录通过) |
+| 服务器侧运行时 | `<server-host>`,node v22.23.2,dsh **0.1.5-rc.2** | 实测 |
 | 服务器可达性 | ✅ 直连可用(需 `~/.ssh/config` 更新到新地址) | 实测 |
 
 ### 2.2 三个 profile 与插件的安装现状
 
 | profile | 目录 | 插件依赖 | 在 bundles 里 | 运行时来源 |
 |---|---|---|---|---|
-| `remote`(CLI 主界面) | `profiles/remote` | `link:G:/remote_ssh_dsh/dsh-remote-tunnel`(0.1.12 本仓库) | ✅ | profiles/node_modules (0.1.7-rc.1) |
+| `remote`(CLI 主界面) | `profiles/remote` | `link:<workspace>/dsh-remote-tunnel`(0.1.12 本仓库) | ✅ | profiles/node_modules (0.1.7-rc.1) |
 | `web`(浏览器 UI) | `profiles/web` | `^0.1.9`(npm 发布版,**落后 3 个 patch**) | ✅ | profiles/node_modules (0.1.7-rc.1) |
 | `desktop`(桌面端) | `profiles/desktop` | **没有** | ❌ | **asar 内 0.2.0-rc.2**(installAnchor) |
 
@@ -114,15 +114,15 @@ __DSH_DIRECTORY_PICKER__.pick / __DSH_HOST_PATHS__.pathFor / __DSH_LOCALE__ / ds
 **新地址实测通过**(密钥登录,BatchMode,只读):
 
 ```
-82.157.182.71:6204   user=zc    ✅ TCP 可达、SSH 密钥登录可用
-hostname = being-Super-Server
+192.0.2.10:6204   user=zc    ✅ TCP 可达、SSH 密钥登录可用
+hostname = <server-host>
 node  v22.23.2            (/usr/bin/node)         ≥ 22.19 ✓
-dsh   0.1.5-rc.2          (/home/zc/.npm-global/bin/dsh)
+dsh   0.1.5-rc.2          (/home/<user>/.npm-global/bin/dsh)
 ```
 
 | 项 | 值 | 状态 |
 |---|---|---|
-| ssh 连通 + 账号 | `zc` @ `being-Super-Server` | ✅ 实测 |
+| ssh 连通 + 账号 | `zc` @ `<server-host>` | ✅ 实测 |
 | Node | v22.23.2 | ✅ 实测 |
 | dsh | 0.1.5-rc.2 | ✅ 实测 |
 | `~/.dsh` / profile bundles | — | 待查 |
@@ -139,7 +139,7 @@ dsh   0.1.5-rc.2          (/home/zc/.npm-global/bin/dsh)
 **同时修正一个我自己下过的错误判断**:本机 `~/.ssh/config` 里的
 `LocalForward 3081 127.0.0.1:4380` 与本插件默认远端区间(3080–3119)不一致,我先前推断为"区间被改过"。
 复核插件日志(2026-09-18 显示远端端口 3081/3082)后确认:那行是**手工转发遗留**,与插件无关。
-→ 应注释掉,统一走插件,避免"手工 `ssh XDU-zc` 与插件 `up` 走的不是同一条路"。
+→ 应注释掉,统一走插件,避免"手工 `ssh lab` 与插件 `up` 走的不是同一条路"。
 
 ---
 
@@ -232,7 +232,7 @@ dsh   0.1.5-rc.2          (/home/zc/.npm-global/bin/dsh)
 ## 六、开工前需要拍板的决策
 
 > **已拍板(2026-10-02)**:① 形态 = **路线 B(桌面端应用内面板 + 侧边栏浏览器显示远程 dsh web)**;
-> ② 真机 = 新地址 `82.157.182.71:6204`(密钥登录可用)。
+> ② 真机 = 新地址 `192.0.2.10:6204`(密钥登录可用)。
 > 配套开工书:[`desktop-panel-kickoff-prompt.md`](./desktop-panel-kickoff-prompt.md)。
 
 仍待定:
@@ -247,18 +247,18 @@ dsh   0.1.5-rc.2          (/home/zc/.npm-global/bin/dsh)
 
 ## 附:本次勘查中已修的环境问题(需要知会)
 
-本会话开始时,**任何 shell 命令都无法启动**,原因是工作区根目录 `G:\remote_ssh_dsh` 的 Windows 文件权限
+本会话开始时,**任何 shell 命令都无法启动**,原因是工作区根目录 `<workspace>` 的 Windows 文件权限
 缺少当前用户的有效 `WRITE_OWNER`(DSH 沙箱无法完成工作区授权)。已用官方配套脚本修复(仅给当前用户补一条
-完全控制项;备份与回滚命令在 `C:\Users\len\dsh-acl-reports\`),修复后 shell 恢复正常。
+完全控制项;备份与回滚命令在 `<用户目录>\len\dsh-acl-reports\`),修复后 shell 恢复正常。
 
 回滚命令(如需要):
 ```
-pwsh -NoProfile -File 'C:\Users\len\dsh-acl-reports\acl-backup-5b778222defc47129c2ef1fff1634b72.json.ps1' -Path 'G:\remote_ssh_dsh' -AllowRoot 'G:\remote_ssh_dsh' -Restore 'C:\Users\len\dsh-acl-reports\acl-backup-5b778222defc47129c2ef1fff1634b72.json'
+pwsh -NoProfile -File '<用户目录>\len\dsh-acl-reports\acl-backup-5b778222defc47129c2ef1fff1634b72.json.ps1' -Path '<workspace>' -AllowRoot '<workspace>' -Restore '<用户目录>\len\dsh-acl-reports\acl-backup-5b778222defc47129c2ef1fff1634b72.json'
 ```
 
 ### 安全提醒(高优先)
 
-勘查桌面端数据目录时,`E:\Applications\dsh-data\.credentials.yaml` 被读取,其中**明文密钥**出现在子代理的
+勘查桌面端数据目录时,`<DSH_HOME>\.credentials.yaml` 被读取,其中**明文密钥**出现在子代理的
 工具输出里(DeepSeek API key、RADEON key、`client-connection/browser-session` 的 HMAC 密钥、账号平台 token)。
 报告文件里**没有**写入这些值,但**本会话的转录已经包含**。如果这个会话会被分享、导出或长期留存,
 建议轮换这四项凭据。

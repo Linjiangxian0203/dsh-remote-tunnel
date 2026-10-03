@@ -19,9 +19,9 @@
 
 | 区域 | 我们是否写入 | 证据 |
 |---|---|---|
-| `E:\Applications\dsh\**`(app 本体、app.asar、main.js、前端 dist) | **从不** | 实测:12 小时内该目录下改动文件数 = 0;`app.asar` 时间戳仍是安装日 |
-| `E:\Applications\dsh-data\profiles\desktop\{package.json,node_modules,pnpm-lock.yaml}` | 会(等于「插件」页点一次『添加插件』) | 这是 app 的**配置数据**,不是 app 代码 |
-| `G:\remote_ssh_dsh\dsh-remote-tunnel`(插件仓库) | 会 | 全部源码/文档/测试都在这里 |
+| `<DSH_APP>\**`(app 本体、app.asar、main.js、前端 dist) | **从不** | 实测:12 小时内该目录下改动文件数 = 0;`app.asar` 时间戳仍是安装日 |
+| `<DSH_HOME>\profiles\desktop\{package.json,node_modules,pnpm-lock.yaml}` | 会(等于「插件」页点一次『添加插件』) | 这是 app 的**配置数据**,不是 app 代码 |
+| `<workspace>\dsh-remote-tunnel`(插件仓库) | 会 | 全部源码/文档/测试都在这里 |
 | 插件在 profile 里的形态 | Junction(开发期)或 npm 副本 | 两种情况都只是 `node_modules` 里的一个包 |
 
 **为什么用到的接口是合法的**:客户端插件、侧栏 tab 类型、`slot`、命令、HTTP 路由、Config schema 都是运行时**公开给第三方插件**的扩展点 ——
@@ -38,9 +38,9 @@
 **回滚(不需要 GUI 能用)**:
 
 ```powershell
-& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop remove dsh-remote-tunnel
+& '<DSH_APP>\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop remove dsh-remote-tunnel
 # 或还原安装前备份:
-Copy-Item 'G:\remote_ssh_dsh\_run\backup-desktop-profile-20261002-160611\package.json' 'E:\Applications\dsh-data\profiles\desktop\package.json' -Force
+Copy-Item '<workspace>\_run\backup-desktop-profile-20261002-160611\package.json' '<DSH_HOME>\profiles\desktop\package.json' -Force
 ```
 
 **0.2.1 会碰的文件(就这些)**:
@@ -97,7 +97,7 @@ GET /remote-tunnel/down?host=         → 停隧道 + 停远端单元 + 释放�
 **先确认桌面 profile 里是 link 还是 npm 副本**(两种都出现过):
 
 ```powershell
-& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add G:\remote_ssh_dsh\dsh-remote-tunnel
+& '<DSH_APP>\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add <workspace>\dsh-remote-tunnel
 # 验证:profiles/desktop/node_modules/dsh-remote-tunnel 应变成 Junction(Target = 仓库)
 ```
 
@@ -105,12 +105,12 @@ GET /remote-tunnel/down?host=         → 停隧道 + 停远端单元 + 释放�
 
 **本机环境坑(照做,否则浪费一小时)**:
 
-- `node.exe` 只能写工作区 → dsh CLI 一律用桌面 shim;npm 加 `--cache G:\remote_ssh_dsh\_npmcache`;
-- 跑集成测试前先 `$env:TEMP='G:\remote_ssh_dsh\_tmp'`(`$env:TMP` 同值),否则 `mkdtemp` EPERM 全红;
+- `node.exe` 只能写工作区 → dsh CLI 一律用桌面 shim;npm 加 `--cache <workspace>\_npmcache`;
+- 跑集成测试前先 `$env:TEMP='<workspace>\_tmp'`(`$env:TMP` 同值),否则 `mkdtemp` EPERM 全红;
 - 桌面端改代码后**必须彻底重启**(窗口关掉 + 托盘退出),当前会话会断 → 每步写进 progress 文档;
-- 隔离自检:`DSH_HOME=G:\remote_ssh_dsh\_smoke\dsh-home` 起 `--profile web --no-open --port 19399`,
+- 隔离自检:`DSH_HOME=<workspace>\_smoke\dsh-home` 起 `--profile web --no-open --port 19399`,
   该 profile 的 patch 已把 row 的 `home` 指到真实状态目录(可读到真实隧道状态);
-- **不要**打印 `E:\Applications\dsh-data\.credentials.yaml` 内容;不要动 npm-global 那份 dsh;不要基于 `dsh-ssh.json` 设计。
+- **不要**打印 `<DSH_HOME>\.credentials.yaml` 内容;不要动 npm-global 那份 dsh;不要基于 `dsh-ssh.json` 设计。
 
 ## 4. 测试与验收闸门
 
@@ -119,7 +119,7 @@ GET /remote-tunnel/down?host=         → 停隧道 + 停远端单元 + 释放�
 | 单元 | `node test/unit.test.js`(现有 21 条:resolveMode、authRejection、客户端 bundle 的 module-loader + React 桩;新面板要加注册/渲染断言) |
 | 集成 | `$env:TEMP=…; node test/integration.test.js`(17 条) |
 | 宿主侧冒烟 | 隔离 web profile 起服务 → 请求路由(注意准入:先拿 `?token=` 换 cookie) |
-| 真机 | 重启桌面端 → 右侧栏指南出现「远程主机」入口 → 打开面板 →「启动隧道」→「在侧栏打开」→ 面板里 `hostname` = `being-Super-Server` |
+| 真机 | 重启桌面端 → 右侧栏指南出现「远程主机」入口 → 打开面板 →「启动隧道」→「在侧栏打开」→ 面板里 `hostname` = `<server-host>` |
 | **核心验收** | **新建空会话(不发消息)就能从侧栏打开面板** —— 这是 0.2.1 存在的理由 |
 
 ## 5. 文档与截图(用户提供截图后)

@@ -5,7 +5,7 @@
 >
 > 本文件是**断点文档**,给"重启桌面端之后的新会话"用。配套路线书:
 > [`desktop-web-refactor-route.md`](./desktop-web-refactor-route.md);勘查结论:
-> `G:\remote_ssh_dsh\_recon\desktop-app-report.md`。
+> `<workspace>\_recon\desktop-app-report.md`。
 > 最后更新:2026-10-03(0.2.1 开发分支 `feat/0.2.1-remote-hosts-panel`;GUI 宿主 / 桌面 runtime = 0.2.0-rc.2;远端 = 0.2.0-rc.2)。
 
 ## 0. 目标与验收
@@ -17,7 +17,7 @@
 | V1 | 桌面端「插件」页出现 `dsh-remote-tunnel`,可开关 | **待闸门 G1(重启桌面端)** |
 | V2 | 侧栏「浏览器」显示服务器上的 dsh web(能看到服务器工作区/会话) | ✅ 2026-10-02 手工验收 |
 | V3 | 自动过鉴权,不出现 "dsh web authentication required" | ✅ 同上(URL 已被 303 重定向为 `http://127.0.0.1:3081/`,刷新仍正常) |
-| V4 | 面板里执行 `hostname` 返回 `being-Super-Server` | ✅ 同上 |
+| V4 | 面板里执行 `hostname` 返回 `<server-host>` | ✅ 同上 |
 
 阶段 0 的物理可行性结论:侧栏「浏览器」接受 `http://127.0.0.1:<隧道口>/?token=…`,
 桌面端 carrier(`globalThis.dshDesktop.browser`)存在 ⇒ 用真 Electron `<webview>`,不受 X-Frame-Options 限制。
@@ -36,28 +36,28 @@
 ### 安装(profile,仓库外)
 | profile | 结果 |
 |---|---|
-| `profiles/desktop` | ✅ 已装 `dsh-remote-tunnel: link:G:/remote_ssh_dsh/dsh-remote-tunnel`,并已追加到 `dsh.profile.bundles`;投影是 **Junction**(仓库改动即时生效);**无 deny 警告** |
+| `profiles/desktop` | ✅ 已装 `dsh-remote-tunnel: link:<workspace>/dsh-remote-tunnel`,并已追加到 `dsh.profile.bundles`;投影是 **Junction**(仓库改动即时生效);**无 deny 警告** |
 | `profiles/remote` | ✅ 旧投影(0.1.7 时代的**目录副本**,peer 还是旧值)已替换为 Junction;现在用新 PATH 默认的 `dsh`(asar 0.2.0-rc.2 锚点)也能正常跑 |
 
-备份目录:`G:\remote_ssh_dsh\_run\backup-desktop-profile-20261002-160611\`、`…\backup-remote-profile-20261002-160721\`
+备份目录:`<workspace>\_run\backup-desktop-profile-20261002-160611\`、`…\backup-remote-profile-20261002-160721\`
 
 ### 测试
 ```powershell
-cd G:\remote_ssh_dsh\dsh-remote-tunnel
+cd <workspace>\dsh-remote-tunnel
 node test/unit.test.js                 # 17/17 ✅
-$env:TEMP='G:\remote_ssh_dsh\_tmp'; $env:TMP=$env:TEMP
+$env:TEMP='<workspace>\_tmp'; $env:TMP=$env:TEMP
 node test/integration.test.js          # 17/17 ✅(见第 2 节,必须重定向 TEMP)
 ```
 
 ## 2. 这台机器的环境坑(踩过,别再踩)
 
-1. **`node.exe` 只能写工作区**。实测 `D:\App\node.exe` 写 `E:\Applications\**`、`%TEMP%`、`%APPDATA%` 全部 EPERM;
+1. **`node.exe` 只能写工作区**。实测 `<node.exe>` 写 `<本机路径>\**`、`%TEMP%`、`%APPDATA%` 全部 EPERM;
    `cmd`/PowerShell/`DeepSeek Harness.exe`(Electron 当 node 用)不受限。对策:
-   - dsh CLI → 用桌面 shim `E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd`(或 `$env:ELECTRON_RUN_AS_NODE=1` + Electron 跑 `bin.js`);
-   - npm → 加 `--cache G:\remote_ssh_dsh\_npmcache`;
-   - 集成测试 → `TEMP/TMP` 指向 `G:\remote_ssh_dsh\_tmp`(否则 `mkdtemp` 全红,看着像"沙箱 spawn EPERM",其实是 tmpdir 不可写)。
+   - dsh CLI → 用桌面 shim `<DSH_APP>\resources\runtime\cli\bin\dsh.cmd`(或 `$env:ELECTRON_RUN_AS_NODE=1` + Electron 跑 `bin.js`);
+   - npm → 加 `--cache <workspace>\_npmcache`;
+   - 集成测试 → `TEMP/TMP` 指向 `<workspace>\_tmp`(否则 `mkdtemp` 全红,看着像"沙箱 spawn EPERM",其实是 tmpdir 不可写)。
    - 这也是 PATH 上那份 npm-global `dsh`(C,0.1.7-rc.1)**彻底不能用**的根因,不只是版本错位。
-2. **PATH 已默认桌面 shim**:`HKCU\Software\DeepSeekHarness\Command\Directory = E:\Applications\dsh\resources\runtime\cli\bin`,用户 PATH 第一项。新终端里 `dsh` = 0.2.0-rc.2 = GUI 同源。**已开着的终端仍是旧 PATH**。
+2. **PATH 已默认桌面 shim**:`HKCU\Software\DeepSeekHarness\Command\Directory = <DSH_APP>\resources\runtime\cli\bin`,用户 PATH 第一项。新终端里 `dsh` = 0.2.0-rc.2 = GUI 同源。**已开着的终端仍是旧 PATH**。
 3. **link: 投影可能是目录副本而不是链接**:老 profile 里是副本,改仓库不生效(表现为 `dsh: skipping profile bundle ... peerDependencies`)。刷新办法:重装,或把投影删掉换成 Junction(`cmd /c mklink /J`)。仓库改动**不会**自动同步到副本。
 4. **`up` 常驻期间其他 CLI 子命令可能长时间无响应**(实测 `status`;原因待查)。`hosts`/`check` 正常。排障时优先用 `hosts`。
 
@@ -67,23 +67,23 @@ node test/integration.test.js          # 17/17 ✅(见第 2 节,必须重定向 
 
 1. 完全退出 DSH 桌面应用(托盘也要退),再启动。
 2. 打开左侧「插件」页 → 「已安装」里应出现 **`dsh-remote-tunnel`**(Remote Host Tunnel Manager),开关可切换。
-3. 侧栏「浏览器」打开远端 dsh web 仍然正常(隧道若已断,先 `dsh --profile remote up XDU-zc`)。
+3. 侧栏「浏览器」打开远端 dsh web 仍然正常(隧道若已断,先 `dsh --profile remote up lab`)。
 4. 若插件页**没有**出现或显示 deny:看桌面端日志里有没有 `skipping profile bundle "dsh-remote-tunnel"`;
    有的话说明投影/peer 没同步(见第 2 节第 3 条)。
 5. **点火(阶段 2b)**:启动后几秒内,右侧栏应**自动**弹出一个「浏览器」标签,里面是远端 dsh web。
    浏览器半会在加载后调 `GET /remote-tunnel/open` 拿 `authUrl`,再 `ctx.sidebarRight.openTab("browser", …)`;
    开机时侧栏 store 可能还没建立,所以它会每 2 秒重试,最多 10 次,最后在控制台留一条
    `[remote-tunnel] panel ignition gave up: …`。若没弹出,请把这条 console 警告告诉我(或看 Panel 是否已有 tab)。
-6. 点火成功后,原来的验收 V2/V3/V4 就在"由插件自动完成"的路径上重跑一遍(hostname = `being-Super-Server`)。
+6. 点火成功后,原来的验收 V2/V3/V4 就在"由插件自动完成"的路径上重跑一遍(hostname = `<server-host>`)。
 7. 手动兜底:浏览器控制台里 `__dshRemoteTunnel.openPanel()` 可以直接开面板(调试用)。
 
 ### 回滚
 ```powershell
-$dsh = 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd'
+$dsh = '<DSH_APP>\resources\runtime\cli\bin\dsh.cmd'
 & $dsh plugin --profile desktop remove dsh-remote-tunnel
 # 或还原备份:
-Copy-Item 'G:\remote_ssh_dsh\_run\backup-desktop-profile-20261002-160611\package.json' 'E:\Applications\dsh-data\profiles\desktop\package.json' -Force
-Copy-Item 'G:\remote_ssh_dsh\_run\backup-desktop-profile-20261002-160611\pnpm-lock.yaml' 'E:\Applications\dsh-data\profiles\desktop\pnpm-lock.yaml' -Force
+Copy-Item '<workspace>\_run\backup-desktop-profile-20261002-160611\package.json' '<DSH_HOME>\profiles\desktop\package.json' -Force
+Copy-Item '<workspace>\_run\backup-desktop-profile-20261002-160611\pnpm-lock.yaml' '<DSH_HOME>\profiles\desktop\pnpm-lock.yaml' -Force
 ```
 
 ## 4. 后续阶段(路线书 + 用户新增需求)
@@ -99,8 +99,8 @@ Copy-Item 'G:\remote_ssh_dsh\_run\backup-desktop-profile-20261002-160611\pnpm-lo
 ## 5. 现状快照(2026-10-02 16:0x)
 
 - 隧道:`http://127.0.0.1:3081` → 服务器 `127.0.0.1:3080`(unit `dsh-web`,`up` 常驻进程存活,ssh pid 12476)。
-- auth URL(一次性 token,进程内有效;断了用 `dsh --profile remote logs XDU-zc` 重新取):
-  `http://127.0.0.1:3081/?token=…`(见 `E:\Applications\dsh-data\remote-tunnel\state\XDU-zc.json`)。
+- auth URL(一次性 token,进程内有效;断了用 `dsh --profile remote logs lab` 重新取):
+  `http://127.0.0.1:3081/?token=…`(见 `<DSH_HOME>\remote-tunnel\state\lab.json`)。
 - 桌面 profile 里另有 4 个 `0.1.7-rc.2` 插件被 0.2.0-rc.2 运行时 deny(browser-use / computer-use ×2),
   属既有问题,与本任务无关;要修就在「插件」页重装 0.2.0 线版本。
 
@@ -121,7 +121,7 @@ Copy-Item 'G:\remote_ssh_dsh\_run\backup-desktop-profile-20261002-160611\pnpm-lo
 
 ### 已实测(隔离 DSH_HOME 起 web profile,与桌面端同一 0.2.0-rc.2 运行时)
 - row 以 service 模式挂载,`commands` 与 `webServer` 都就绪;
-- `GET /remote-tunnel/state` / `/open?host=XDU-zc` → 200,返回真实 `authUrl`;未知 action → 404;未知主机 → 409;
+- `GET /remote-tunnel/state` / `/open?host=lab` → 200,返回真实 `authUrl`;未知 action → 404;未知主机 → 409;
 - index 的 boot graph 里已包含 `dsh-remote-tunnel/client.js`,`/plugins/??dsh-remote-tunnel/client.js&rev=…` 原样返回手写 bundle。
 
 ### 坑(重要)
@@ -135,14 +135,14 @@ webserver 的 prefix 匹配是 `path === P || path.startsWith(P + "/")`,
 ## 7. 新会话开工 prompt(复制粘贴给重启后的新会话)
 
 ```text
-项目:G:\remote_ssh_dsh\dsh-remote-tunnel(dsh 插件,目标是让远端 dsh web 显示在桌面端右侧栏「浏览器」面板里)。
+项目:<workspace>\dsh-remote-tunnel(dsh 插件,目标是让远端 dsh web 显示在桌面端右侧栏「浏览器」面板里)。
 
 先读这两份文档,不要重新逆向 app.asar:
 - docs/desktop-panel-progress.md(断点 / 验收矩阵 / 本机环境坑 / 回滚,最重要)
 - docs/desktop-web-refactor-route.md(技术路线书)
 
 已完成:
-- 阶段 0:侧栏「浏览器」手工验收 V2/V3/V4 通过(远端 hostname = being-Super-Server)。
+- 阶段 0:侧栏「浏览器」手工验收 V2/V3/V4 通过(远端 hostname = <server-host>)。
 - 阶段 1 → 提交 43c1025:resolveMode 改用 profileContext 判模式(修 P0-1,避免误退宿主进程)、
   peer 放宽覆盖 0.1.7-rc/0.2.0-rc 两线、插件已装进 profiles/desktop(link junction + bundles)。
 - 阶段 2a/2b → 提交 71c6212:宿主路由 /remote-tunnel/{state,open,up,down} 与
@@ -157,18 +157,18 @@ webserver 的 prefix 匹配是 `path === P || path.startsWith(P + "/")`,
   目标是任何人在 GUI「插件 → 添加插件」里输入 dsh-remote-tunnel 就能装上。
 
 本机环境(必须遵守):
-- node.exe 只能写工作区 G:\remote_ssh_dsh:dsh CLI 一律用桌面 shim
-  E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd(或 ELECTRON_RUN_AS_NODE=1 +
-  "E:\Applications\dsh\DeepSeek Harness.exe" <bin.js>);npm 要 --cache G:\remote_ssh_dsh\_npmcache;
-  跑集成测试前先 $env:TEMP='G:\remote_ssh_dsh\_tmp'、$env:TMP 同值(否则 mkdtemp EPERM)。
-- 服务器 XDU-zc = 82.157.182.71:6204(user zc,密钥登录),远端 dsh 0.2.0-rc.2;
+- node.exe 只能写工作区 <workspace>:dsh CLI 一律用桌面 shim
+  <DSH_APP>\resources\runtime\cli\bin\dsh.cmd(或 ELECTRON_RUN_AS_NODE=1 +
+  "<DSH_APP>\DeepSeek Harness.exe" <bin.js>);npm 要 --cache <workspace>\_npmcache;
+  跑集成测试前先 $env:TEMP='<workspace>\_tmp'、$env:TMP 同值(否则 mkdtemp EPERM)。
+- 服务器 lab = 192.0.2.10:6204(user <user>,密钥登录),远端 dsh 0.2.0-rc.2;
   插件 up 后隧道 127.0.0.1:3081 → 远端 127.0.0.1:3080。远端写操作必须 flock + mktemp + cat >(禁用 mv)。
 - 桌面端是 Electron 壳,GUI 固定 127.0.0.1:19387,渲染器 origin 是 dsh-app://app/;
   改 profile 必须重启桌面端才生效,重启会中断会话 —— 所以每步都要写进 docs/desktop-panel-progress.md。
 - 侧栏面板只能由客户端插件打开:ctx.sidebarRight.openTab("browser", { params: { url } })。
 - webserver 的 prefix 路由不能带结尾斜杠(path === P || path.startsWith(P + "/"))。
 - 不要动 npm-global 那份 dsh(0.1.7-rc.1,已弃用);不要基于 dsh-ssh.json 设计;
-  不要打印 E:\Applications\dsh-data\.credentials.yaml 的内容。
+  不要打印 <DSH_HOME>\.credentials.yaml 的内容。
 
 我这轮 G1 + 点火验收的结果:(把结果贴在这里)
 
@@ -180,21 +180,21 @@ webserver 的 prefix 匹配是 `path === P || path.startsWith(P + "/")`,
 ```powershell
 # 1) 隧道是否在跑
 Get-NetTCPConnection -State Listen -LocalPort 3081 -ErrorAction SilentlyContinue | Select LocalPort,OwningProcess
-Get-Content 'E:\Applications\dsh-data\remote-tunnel\state\XDU-zc.json' -Raw
+Get-Content '<DSH_HOME>\remote-tunnel\state\lab.json' -Raw
 
 # 2) 插件是否已装进 desktop profile 且未被 deny
-& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop list
+& '<DSH_APP>\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop list
 
 # 3) 隔离 DSH_HOME 起一个 web profile 复现宿主侧行为(不动用户正在用的 GUI)
 #    它的 profiles/web/cordis.patch.yml 里已把 row 的 home 指到真实 remote-tunnel 目录
-& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' --profile web --no-open --port 19399
-#    (需要 DSH_HOME=G:\remote_ssh_dsh\_smoke\dsh-home;起来后用 index 里的 ?token= 换 cookie,
-#     再 GET /remote-tunnel/state 与 /remote-tunnel/open?host=XDU-zc)
+& '<DSH_APP>\resources\runtime\cli\bin\dsh.cmd' --profile web --no-open --port 19399
+#    (需要 DSH_HOME=<workspace>\_smoke\dsh-home;起来后用 index 里的 ?token= 换 cookie,
+#     再 GET /remote-tunnel/state 与 /remote-tunnel/open?host=lab)
 
 # 4) 测试
-cd G:\remote_ssh_dsh\dsh-remote-tunnel
+cd <workspace>\dsh-remote-tunnel
 node test/unit.test.js
-$env:TEMP='G:\remote_ssh_dsh\_tmp'; $env:TMP=$env:TEMP; node test/integration.test.js
+$env:TEMP='<workspace>\_tmp'; $env:TMP=$env:TEMP; node test/integration.test.js
 ```
 
 
@@ -221,7 +221,7 @@ $env:TEMP='G:\remote_ssh_dsh\_tmp'; $env:TMP=$env:TEMP; node test/integration.te
 2. 启动后**不再自动弹面板**(默认 autoOpen=false);
 3. 发 `/remote hosts` → 对话里出现**卡片**(命令 + 结果文本 + 隧道状态 + 四个按钮);
 4. 点「在侧栏打开」→ 右侧栏出现远端 dsh web;点「在浏览器打开」→ 系统浏览器打开同一 URL;
-5. 面板里发「执行 hostname 命令,把原始输出返回给我」→ `being-Super-Server`(V4)。
+5. 面板里发「执行 hostname 命令,把原始输出返回给我」→ `<server-host>`(V4)。
 
 
 ## 9. 验收通过(2026-10-02 17:25)
@@ -231,12 +231,12 @@ $env:TEMP='G:\remote_ssh_dsh\_tmp'; $env:TMP=$env:TEMP; node test/integration.te
 | V1 | 桌面端「插件」页出现插件、可开关、中文标题 | ✅「远程隧道 (dsh-remote-tunnel)」+ 中文描述(刷新即生效,无需重启) |
 | V2 | 侧栏「浏览器」显示服务器上的 dsh web | ✅ 由卡片「在侧栏打开」打开;面板里能看到服务器工作区/会话 |
 | V3 | 自动过鉴权,不出现 authentication required | ✅(token → 303 → cookie,面板刷新仍正常) |
-| V4 | 面板里执行 hostname 返回 being-Super-Server | ✅ 17:25 实测 |
+| V4 | 面板里执行 hostname 返回 <server-host> | ✅ 17:25 实测 |
 
 黑匣子(/remote-tunnel/status 的 client.events)同期记录:
 ```
 loaded → service sidebarRight → view conversation.chat.commandview#remote
-→ idle "autoOpen is off" → command "hosts" → command-ok "XDU-zc 82.157.182.71:6204 [ssh-config]"
+→ idle "autoOpen is off" → command "hosts" → command-ok "lab 192.0.2.10:6204 [ssh-config]"
 ```
 
 已知的两个"看起来像 bug 其实不是"的点,记下来免得重复排查:
@@ -259,7 +259,7 @@ loaded → service sidebarRight → view conversation.chat.commandview#remote
 1. 打包自检(`exports`/`files`/locale/client 半)→ `npm pack` 在临时目录验证;
 2. 版本号 0.2.0 + CHANGELOG + `.github/releases/v0.2.0.md`(中英);
 3. 打 `v0.2.0` tag → GitHub Actions(`publish.yml`)→ npm publish;
-4. 端到端验收:卸载开发期的 link 安装 → GUI「添加插件」输入 `dsh-remote-tunnel` → 装上即中文、卡片可用、面板可开、`hostname` = being-Super-Server。
+4. 端到端验收:卸载开发期的 link 安装 → GUI「添加插件」输入 `dsh-remote-tunnel` → 装上即中文、卡片可用、面板可开、`hostname` = <server-host>。
 
 
 ## 11. 阶段 3a 完成 —— 卡片打磨(2026-10-02 傍晚)
@@ -293,7 +293,7 @@ loaded → service sidebarRight → view conversation.chat.commandview#remote
 **做法**:在 **`conversation.composer.dock`**(输入框上方、第一方 StatsPills 同一个座位,
 空会话也渲染)注册一条常驻状态条:
 
-- 有隧道:`● 远程隧道 / remote tunnel  XDU-zc · http://127.0.0.1:3081` +
+- 有隧道:`● 远程隧道 / remote tunnel  lab · http://127.0.0.1:3081` +
   「在侧栏打开」「在浏览器打开」「断开」;
 - 没有隧道:`未连接 / not connected`(或没有主机时 `未配置主机 / no host`)+ 「启动隧道 / up」;
 - 每 15 秒轮询一次 `/remote-tunnel/status`,动作完成后立即刷新;
@@ -309,7 +309,7 @@ loaded → service sidebarRight → view conversation.chat.commandview#remote
 服务端返回的 19,980 字节 bundle 内含 `conversation.composer.dock` 与状态条文案。
 
 ### 12.1 重启后的验收清单(3a.1)
-1. **新建一个空会话**(不要发任何消息)→ 输入框上方应出现 `● 远程隧道 / remote tunnel  XDU-zc · http://127.0.0.1:3081` +
+1. **新建一个空会话**(不要发任何消息)→ 输入框上方应出现 `● 远程隧道 / remote tunnel  lab · http://127.0.0.1:3081` +
    三个按钮;点「在侧栏打开」应能打开远端 dsh web(**这一条就是本次修复的核心**);
 2. 点「断开」→ 状态条变成 `未连接` + 「启动隧道 / up」;再点「启动隧道」→ 恢复;
 3. 把 row 配置加 `dock: false` → 状态条整条消失(阶段 3b 会做成设置页开关);
@@ -435,7 +435,7 @@ package.json:version 0.2.0、dsh.client.platform=web、exports["./client"]、exp
 3. 「插件」页 →「添加插件」→ 输入 dsh-remote-tunnel → 安装;
 4. **再重启一次**桌面应用;
 5. 验收:插件页中文标题/描述(0.2.0);发 /remote hosts 出卡片;输入框上方状态条;「在侧栏打开」出远端 dsh web;
-   面板里 hostname = being-Super-Server;
+   面板里 hostname = <server-host>;
 6. 回滚:卸载后再 dsh plugin --profile desktop add <本仓库目录> 即回到开发期 link 安装。
 
 > 注意:一旦 GUI 从 npm 装的是**真实副本**(不是 junction),仓库里的改动**不再对桌面端生效**;
@@ -447,7 +447,7 @@ package.json:version 0.2.0、dsh.client.platform=web、exports["./client"]、exp
 **分支**:`feat/0.2.1-remote-hosts-panel`(从 main@0958dc2 建;`.git` 就在工作区,分支不占 C 盘)。
 用户拍板:分支上开发 → 真机验收 → 通过后 `merge --ff-only` 回 main → 打 tag 发版。
 
-**基线双绿**:unit **21/21**;integration **17/17**(必须先 `$env:TEMP=G:\remote_ssh_dsh\_tmp`/`TMP` 同值)。
+**基线双绿**:unit **21/21**;integration **17/17**(必须先 `$env:TEMP=<workspace>\_tmp`/`TMP` 同值)。
 
 **安装形态复核**(计划 §3 要求"先确认 link 还是副本"):desktop 与 `_smoke\dsh-home\profiles\web` 两个 profile 都是
 **Junction → 仓库**;桌面端进程启动于 10/3 11:32/11:41,**晚于** Junction 创建时间(10/2 16:06)⇒ 用户当前 GUI 跑的就是仓库代码,
@@ -475,8 +475,8 @@ package.json:version 0.2.0、dsh.client.platform=web、exports["./client"]、exp
 **冒烟环境备查**(隔离 home,patch 里 `auth:false` 便于匿名请求):
 
 ```powershell
-$env:DSH_HOME='G:\remote_ssh_dsh\_smoke\dsh-home'
-& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' --profile web --no-open --port 19399
+$env:DSH_HOME='<workspace>\_smoke\dsh-home'
+& '<DSH_APP>\resources\runtime\cli\bin\dsh.cmd' --profile web --no-open --port 19399
 # 取 bundle 路由(含 rev):GET / 的 index 里搜 'dsh-remote-tunnel/client.js&rev='
 # 停:job_kill 只杀 pwsh 包装进程 —— 必须找到监听 19399 的 PID 再 Stop-Process
 Get-NetTCPConnection -State Listen -LocalPort 19399 | Select-Object OwningProcess
@@ -533,11 +533,11 @@ Get-NetTCPConnection -State Listen -LocalPort 19399 | Select-Object OwningProces
 **测试**:unit **28/28**(21 → +4 宿主端:known_hosts 解析、输入校验、upsert/drop + 3 条客户端;其中面板用例断言了两个写 URL 的精确形态);
 integration **17/17**(TEMP 重定向)。
 
-**冒烟(隔离 web profile 的宿主半写路由)**:为不碰真实配置,临时把 `_smoke` 的 `cordis.patch.yml` 里 `home` 指向 `G:\remote_ssh_dsh\_smoke\state-write`,重启 19399 后实测:
+**冒烟(隔离 web profile 的宿主半写路由)**:为不碰真实配置,临时把 `_smoke` 的 `cordis.patch.yml` 里 `home` 指向 `<workspace>\_smoke\state-write`,重启 19399 后实测:
 
 | 请求 | 结果 |
 |---|---|
-| `GET /remote-tunnel/status` | **200**,`hosts=1`(XDU-zc,ssh-config)、`discovered=3`(明文 known_hosts)、`discovery.exists=true`、`hashed=0` |
+| `GET /remote-tunnel/status` | **200**,`hosts=1`(lab,ssh-config)、`discovered=3`(明文 known_hosts)、`discovery.exists=true`、`hashed=0` |
 | `hosts/add` 不带 confirm | **400** `hosts/add writes the config — pass confirm=1` |
 | `hosts/add?confirm=1` | **200**,写入隔离 config.yaml |
 | 重复 add | **409** `E_HOST_EXISTS` |
@@ -545,10 +545,10 @@ integration **17/17**(TEMP 重定向)。
 | `hosts/remove` 不带 confirm | **400** |
 | `hosts/remove?confirm=1` | **200**,隔离 config.yaml 回到 `hosts: {}` |
 | 再次 remove | **404** `E_UNKNOWN_HOST` |
-| remove `XDU-zc`(ssh-config 条目) | **404** `"XDU-zc" is defined in ~/.ssh/config — edit that file instead` |
+| remove `lab`(ssh-config 条目) | **404** `"lab" is defined in ~/.ssh/config — edit that file instead` |
 | 未知 action | **404** |
 
-**安全核对**:全程结束后,真实配置 `E:\Applications\dsh-data\remote-tunnel\config.yaml` 的 MD5 与动手前一致
+**安全核对**:全程结束后,真实配置 `<DSH_HOME>\remote-tunnel\config.yaml` 的 MD5 与动手前一致
 (`15DFF8407C6B73762B667B02A2845FEC`);`~/.ssh` 全程只读。冒烟后 `_smoke` 的 patch 已改回真实 `home`,19399 重启后 `status` 200 / `discovered=3`。
 
 **下一步**:阶段 5(README 双语「侧栏面板」章节 + CHANGELOG + `.github/releases/v0.2.1.md` + prompt 文档进 `.gitignore`),然后给用户重启验收包。
@@ -580,9 +580,9 @@ client bundle 的 rev = `sha1(mtimeMs + ctimeMs + size)`,运行中的宿主**拒
 | A1 | 左侧「插件」页 | 出现「远程隧道 (dsh-remote-tunnel)」,版本 **0.2.1** |
 | A2 | **新建空会话**(不发消息)→ 展开右侧栏(会话头部右上角按钮) | 指南页出现「**远程主机**」胶囊(与 浏览器 / 工作区文件 / 新建终端 并列) |
 | A3 | 点「远程主机」胶囊 | 面板打开:标题「远程主机」、连接状态标签、主机行、五个动作按钮 |
-| A4 | 面板点「启动隧道 / up」 | 隧道起来(端口可能不是 3081),状态变「已连接 / connected」,显示 `隧道:XDU-zc · …` |
-| A5 | 面板点「在侧栏打开」 | 右侧栏出现远端 dsh web;在远端面板里发「执行 hostname,把原始输出返回给我」→ `being-Super-Server`(V4) |
-| A6 | 「已配置主机 / managed hosts」区 | 列出 `XDU-zc`,标注 `~/.ssh/config`(只读,无删除按钮) |
+| A4 | 面板点「启动隧道 / up」 | 隧道起来(端口可能不是 3081),状态变「已连接 / connected」,显示 `隧道:lab · …` |
+| A5 | 面板点「在侧栏打开」 | 右侧栏出现远端 dsh web;在远端面板里发「执行 hostname,把原始输出返回给我」→ `<server-host>`(V4) |
+| A6 | 「已配置主机 / managed hosts」区 | 列出 `lab`,标注 `~/.ssh/config`(只读,无删除按钮) |
 | A7 | 「发现的主机 / discovered in ~/.ssh」区 | 列出 `known_hosts` 里连过的主机(本机实测 3 台);点「添加」→ 变成已配置主机(`plugin-config`),可两步「删除」 |
 | A8 | 点「断开连接 / down」(两步确认) | 隧道停止,状态变「未连接 / not connected」,动作变回「启动隧道 / up」 |
 | A9 | 输入框上方状态条 + `/remote hosts` 卡片 | 与 0.2.0 行为一致(回归检查) |
@@ -592,18 +592,18 @@ client bundle 的 rev = `sha1(mtimeMs + ctimeMs + size)`,运行中的宿主**拒
 ### 回滚命令(不需要 GUI 能用)
 
 ```powershell
-cd G:\remote_ssh_dsh\dsh-remote-tunnel
+cd <workspace>\dsh-remote-tunnel
 git checkout main                      # 工作树立即回到 0.2.0 内容
 # 然后必须彻底重启桌面应用(§18:改文件会让运行中宿主的 bundle rev 失效)
 # 要连插件一起摘掉:
-& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop remove dsh-remote-tunnel
+& '<DSH_APP>\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop remove dsh-remote-tunnel
 # 想回到开发态(link 安装):
-& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add G:\remote_ssh_dsh\dsh-remote-tunnel
+& '<DSH_APP>\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add <workspace>\dsh-remote-tunnel
 ```
 
 ## 22. 0.2.1 发布前打包自检(2026-10-03)
 
-`npm pack --dry-run --cache G:\remote_ssh_dsh\_npmcache`(先重定向 TEMP/TMP)结果:
+`npm pack --dry-run --cache <workspace>\_npmcache`(先重定向 TEMP/TMP)结果:
 
 - **0.2.1 tarball:34 个文件 / 116.2kB**,含 `src/client.js`(33.6kB,新面板)、`src/ssh-config.js`、`src/config.js`、`src/web.js`、
   `docs/desktop-panel-{0.2.1-plan,progress}.md`、双语 README、CHANGELOG、`locale/*`、`cordis.patch.yml`、`scripts/bootstrap-remote.sh`;
@@ -626,7 +626,7 @@ git checkout main                      # 工作树立即回到 0.2.0 内容
 3. **删掉 `cli.js` 里已用不到的 `saveConfig` 导入**。
 
 回归证据(隔离 home 冒烟,重启服务后):
-`add XDU-zc`(不带 overwrite)→ **409**;`add XDU-zc&overwrite=1` → **200**;`remove` → **200**,隔离 config.yaml 回到 `hosts: {}`;
+`add lab`(不带 overwrite)→ **409**;`add lab&overwrite=1` → **200**;`remove` → **200**,隔离 config.yaml 回到 `hosts: {}`;
 `status` → 200 / `discovered=3` / 无 discovery 错误。unit **28/28**、integration **17/17**。
 
 ## 24. 0.2.1 重启前加固(2026-10-03)
@@ -646,17 +646,17 @@ git checkout main                      # 工作树立即回到 0.2.0 内容
 ## 25. 0.2.1 首轮真机验收反馈与修正(2026-10-03)
 
 **首轮验收结论(用户截图)**:核心闸门**通过** —— 空会话展开右栏即见胶囊、面板打开、隧道起来
-(`隧道:XDU-zc · 82.157.182.71:3080 · http://127.0.0.1:3081 · /home/zc`)、「断开连接 / down」在位。用户报了 4 条,逐条定位:
+(`隧道:lab · 192.0.2.10:3080 · http://127.0.0.1:3081 · /home/<user>`)、「断开连接 / down」在位。用户报了 4 条,逐条定位:
 
 | # | 现象 | 根因 | 处理 |
 |---|---|---|---|
 | 1 | 插件页没有版本号 | **我的验收清单写错**:桌面端「插件」页对任何插件都不渲染版本号 | 宿主半 `/status` 增加 `version`(读插件自己的 package.json),面板标题旁显示 `v0.2.1` |
 | 2 | 想改名「远程主机」→「远程连接」,图标换电脑 | 指南胶囊图标契约是 `entry.icon`(**组件**),不传就落默认立方体(`sidebar-right/lib/client.js:461`) | 三处改名(tab 标题/指南胶囊/面板标题)+ 自带内联 SVG 显示器图标(不引入 primitives 依赖) |
-| 3 | 已配置主机没有删除按钮 | `XDU-zc` 来自 `~/.ssh/config`,我们承诺只读 | 行尾文案改为「来自 ~/.ssh/config · 只读」;**「隐藏 / 接管」待用户拍板** |
-| 4 | 发现的主机点「添加」无效 | **真 bug**:非 22 端口候选的别名是 `host:port`,而别名规则 `^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$` 拒绝冒号 → **400**(`config.js:84`) | 宿主计算 `suggestedAlias`(`101.43.145.128-6104`;IPv6 → `2001-db8--1-2222`),面板用提交;**规则不放宽**(别名会进 state 文件名,冒号在 Windows 文件名里非法) |
+| 3 | 已配置主机没有删除按钮 | `lab` 来自 `~/.ssh/config`,我们承诺只读 | 行尾文案改为「来自 ~/.ssh/config · 只读」;**「隐藏 / 接管」待用户拍板** |
+| 4 | 发现的主机点「添加」无效 | **真 bug**:非 22 端口候选的别名是 `host:port`,而别名规则 `^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$` 拒绝冒号 → **400**(`config.js:84`) | 宿主计算 `suggestedAlias`(`192.0.2.55-6104`;IPv6 → `2001-db8--1-2222`),面板用提交;**规则不放宽**(别名会进 state 文件名,冒号在 Windows 文件名里非法) |
 
 **验证**(隔离 home,重启宿主后):
-- `status.version = 0.2.1`;候选带 `suggestedAlias`:`101.43.145.128:6104 => 101.43.145.128-6104`、`github.com => github.com`;
+- `status.version = 0.2.1`;候选带 `suggestedAlias`:`192.0.2.55:6104 => 192.0.2.55-6104`、`github.com => github.com`;
 - 原样 `host:port` 仍 **400**(护栏在);用 `suggestedAlias` → **200**;添加后 `managed` 多一台、`discovered` 3→2;`remove` → **200**;
 - bundle **200 / 34529 字节**,含 `远程连接`、内联 svg(`viewBox`)、版本渲染、`suggestedAlias`、「只读」文案;
 - unit **30/30**(新增:suggestedAlias 必须是合法别名、面板显示版本、指南 glyph 是组件且渲染出 svg、非 22 端口候选的写 URL)、integration **17/17**。
@@ -677,8 +677,8 @@ git checkout main                      # 工作树立即回到 0.2.0 内容
 - CLI hosts **仍列出全部主机**,末尾提示有多少条在面板里被隐藏(隐藏只是面板偏好);
 - 客户端:ssh-config 行加「隐藏」、发现行加「忽略」、新增「已隐藏 / hidden in this pane」区(每条一个「恢复」)。
 
-**验证**(隔离 home 冒烟):hide 无 confirm → **400**;隐藏 XDU-zc → **200**,hosts 为空、hidden=["XDU-zc"];恢复 → **200**,主机回来;
-忽略候选 101.43.145.128:6104 → **200**,discovered 少一条;恢复 → 回来;隐藏不存在的键 → **404**;
+**验证**(隔离 home 冒烟):hide 无 confirm → **400**;隐藏 lab → **200**,hosts 为空、hidden=["lab"];恢复 → **200**,主机回来;
+忽略候选 192.0.2.55:6104 → **200**,discovered 少一条;恢复 → 回来;隐藏不存在的键 → **404**;
 bundle **200 / 36195 字节**含 隐藏/忽略/已隐藏;unit **32/32**、integration **17/17**。
 
 **⚠️ 排查记录:真实 config.yaml 在 13:54:56 被重写过一次**(哈希 15DFF8… → 7A6D72…,内容仍是 hosts: {},用户的 localWaitSeconds: 60 保留)。
@@ -747,7 +747,7 @@ integration **17/17**;隔离冒烟 bundle **200 / 44338 字节**,含 `手动添�
 | 位置 | 状态 |
 |---|---|
 | npm 0.2.1(未发布,本轮) | 已把三份本地历史文档加进 `docs/.npmignore` → **31 文件,复扫 8 个敏感串全部 0 命中**,无私钥/凭据/绝对路径 |
-| **npm 0.2.0(已发布 npm latest)** | **仍含**:progress.md 与 web-refactor-route.md 里有 `XDU-zc` ×12、`82.157.182.71` ×5、`remote_ssh_dsh` ×20、`101.43.145.128` ×1、`/home/zc` ×1、`being-Super-Server` ×9;0.2.0 发布于 2026-10-02 19:08,**在 npm 72 小时 unpublish 窗口内** |
+| **npm 0.2.0(已发布 npm latest)** | **仍含**:progress.md 与 web-refactor-route.md 里有 `lab` ×12、`192.0.2.10` ×5、`<本机工作区>` ×20、`192.0.2.55` ×1、`/home/<user>` ×1、`<server-host>` ×9;0.2.0 发布于 2026-10-02 19:08,**在 npm 72 小时 unpublish 窗口内** |
 | GitHub `main`(已推送) | 同样三份文档(plan/progress/web-refactor-route),最早 **2026-10-02**(43c1025 起)公开,共 11 个提交涉及 |
 | `src/`(代码) | **干净**:只有通用逻辑,运行时才读 `config.yaml`/`~/.ssh`;仓库与包里没有本机数据副本 |
 | `test/unit.test.js` | 我自己写进去的真实 known_hosts IP 与主机别名(**未推送**),已换成占位符 `192.0.2.77` / `lab`,复扫 0 命中,单测仍 35/35 |
@@ -768,14 +768,14 @@ integration **17/17**;隔离冒烟 bundle **200 / 44338 字节**,含 `手动添�
 
 | 文件 | 命中的本机信息(实测计数) |
 |---|---|
-| `docs/desktop-panel-progress.md` | XDU-zc ×18、82.157.182.71 ×3、101.43.145.128 ×3、remote_ssh_dsh ×22、E:\Applications ×17、/home/zc ×1、Super-Server ×8 |
-| `docs/desktop-panel-0.2.1-plan.md` | remote_ssh_dsh ×6、E:\Applications ×6、Super-Server ×1 |
-| `docs/desktop-web-refactor-route.md` | XDU-zc ×2、82.157.182.71 ×3、101.43.145.128 ×1、remote_ssh_dsh ×4、E:\Applications ×3、/home/zc ×1、Super-Server ×3 |
+| `docs/desktop-panel-progress.md` | lab ×18、192.0.2.10 ×3、192.0.2.55 ×3、<本机工作区> ×22、<本机路径> ×17、/home/<user> ×1、<server-host> ×8 |
+| `docs/desktop-panel-0.2.1-plan.md` | <本机工作区> ×6、<本机路径> ×6、<server-host> ×1 |
+| `docs/desktop-web-refactor-route.md` | lab ×2、192.0.2.10 ×3、192.0.2.55 ×1、<本机工作区> ×4、<本机路径> ×3、/home/<user> ×1、<server-host> ×3 |
 
 **修法**:把这三份加进 `docs/.npmignore`(它们仍是仓库/GitHub 的项目历史,只是不再随 npm 分发):包 **34 → 31 文件**,docs/ 只剩 `promo.svg`、`registry-format{,.en}.md`、`upstream-report-config-default.md`。
 
-**复核(对真实 tarball 解包后全量扫描)**:`82.157.182.71` / `XDU-zc` / `101.43.145.128` / `remote_ssh_dsh` / `E:\Applications` / `/home/zc` / `Super-Server` / `dsh-data` **全部 0 命中**;
-`BEGIN … PRIVATE KEY`、`C:\Users`、`D:\App`、`id_rsa`、`id_ed25519`、`*.pem`、绝对盘符路径 **0 命中**;
+**复核(对真实 tarball 解包后全量扫描)**:`192.0.2.10` / `lab` / `192.0.2.55` / `<本机工作区>` / `<本机路径>` / `/home/<user>` / `<server-host>` / `dsh-data` **全部 0 命中**;
+`BEGIN … PRIVATE KEY`、`<用户目录>`、`<node.exe 路径>`、`id_rsa`、`id_ed25519`、`*.pem`、绝对盘符路径 **0 命中**;
 `credentials`/`password`/`api_key` 的少量命中都是 README 里的说明文字("不触碰凭据""passwordless ssh")与 bootstrap 脚本里的 `DEEPSEEK_API_KEY` 变量名,不含任何真实值。
 
 **运行时数据从不参与打包**:`config.yaml`(主机表)、`~/.ssh/config`、`known_hosts`、`.credentials.yaml` 都是插件在你机器上**运行时读取**的,仓库与包里没有副本。
