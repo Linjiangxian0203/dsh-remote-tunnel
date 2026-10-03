@@ -198,8 +198,9 @@ test("resolveMode: webStartup only ever promotes to service", () => {
 // ---- browser half (src/client.js) ------------------------------------------
 // The bundle only ever runs inside the web renderer, so this loads it with a
 // captured module loader, a stubbed React and a fake host, then renders the
-// /remote card and the composer strip. It is the only automated check that the
-// two open modes, the disconnect step and the dock survive a change.
+// /remote card, the composer strip and the right sidebar's pane. It is the only
+// automated check that the two open modes, the disconnect step, the dock and the
+// remote-hosts tab type survive a change without restarting the desktop app.
 
 function loadClientBundle() {
   const source = readFileSync(new URL("../src/client.js", import.meta.url), "utf8");
@@ -292,8 +293,13 @@ async function mountClient(load) {
   assert.equal(typeof plugin.apply, "function");
   const opened = [];
   const registered = [];
+  const tabTypes = [];
+  const disposers = [];
   const ctx = {
     sidebarRight: { openTab: (...args) => { opened.push(args); } },
+    sidebarRightTabs: { register: (definition) => { tabTypes.push(definition); return () => {}; } },
+    // cordis' ctx.effect runs the callback now and owns the disposer it returns.
+    effect: (fn) => { disposers.push(fn()); },
     inject: (deps, callback) => { callback(ctx); },
     slots: {
       inject: (name, callback) => callback(),
@@ -302,11 +308,12 @@ async function mountClient(load) {
   };
   plugin.apply(ctx);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  return { react, registered, opened };
+  return { react, registered, opened, tabTypes, disposers };
 }
 
 const CARD = "conversation.chat.commandview";
 const DOCK = "conversation.composer.dock";
+const TAB_PANE = "sidebar.right.pane.tab";
 
 test("client bundle: the /remote card offers both open modes and the disconnect step", async () => {
   const load = loadClientBundle();
@@ -358,6 +365,59 @@ test("client bundle: the composer strip carries the actions and honours dock:fal
   assert.equal(hidden.second, "", "dock:false must render nothing");
   react.reset();
 });
+test("client bundle: registers the remote-hosts tab type with a guide entry", async () => {
+  const load = loadClientBundle();
+  const { tabTypes, disposers } = await mountClient(load);
+  assert.equal(tabTypes.length, 1, "exactly one tab type");
+  const definition = tabTypes[0];
+  assert.equal(definition.id, "dsh-remote-tunnel/hosts");
+  assert.equal(definition.kind, "remote-hosts");
+  assert.ok(!("patterns" in definition), "a page type must not claim resource patterns");
+  assert.equal(typeof definition.title, "function");
+  assert.equal(definition.title(), "远程主机");
+  assert.equal(definition.guide.length, 1);
+  assert.equal(definition.guide[0].id, "hosts");
+  assert.equal(typeof definition.guide[0].order, "number");
+  assert.equal(definition.guide[0].title(), "远程主机");
+  assert.ok(definition.guide[0].description().length > 0, "the guide capsule needs a description");
+  assert.equal(disposers.length, 1, "the registration must be owned by ctx.effect");
+  assert.equal(typeof disposers[0], "function", "and must hand back its disposer");
+});
+
+test("client bundle: the sidebar pane shows the tunnel, both open modes and the disconnect step", async () => {
+  const load = loadClientBundle();
+  const { react, registered } = await mountClient(load);
+  const pane = registered.find((item) => item.definition.name === TAB_PANE);
+  assert.ok(pane, "the sidebar.right.pane.tab body must be registered");
+  assert.equal(pane.definition.key, "dsh-remote-tunnel/hosts");
+  react.reset();
+  const props = { useTabInfo: () => ({ sidebar: {}, panel: { id: "pane-1" }, tab: { navigation: { params: {} } } }) };
+  const live = await renderTwice(react, pane.Component, props);
+  assert.ok(live.second.includes("远程主机"), live.second);
+  assert.ok(live.second.includes("已连接 / connected"), live.second);
+  assert.ok(live.second.includes("隧道:lab"), live.second);
+  assert.ok(live.second.includes("在侧栏打开"), live.second);
+  assert.ok(live.second.includes("在浏览器打开"), live.second);
+  assert.ok(live.second.includes("断开连接 / down"), live.second);
+  assert.ok(!live.second.includes("启动隧道 / up"), "a live tunnel must not offer up");
+  react.reset();
+});
+
+test("client bundle: the pane offers up when nothing is connected, and honours params.host", async () => {
+  const load = loadClientBundle();
+  load.state.tunnels = [];
+  const { react, registered } = await mountClient(load);
+  const pane = registered.find((item) => item.definition.name === TAB_PANE);
+  react.reset();
+  // An opener may name the host it was acting on; the pane must honour it.
+  const props = { useTabInfo: () => ({ tab: { navigation: { params: { host: "lab" } } } }) };
+  const stopped = await renderTwice(react, pane.Component, props);
+  assert.ok(stopped.second.includes("未连接 / not connected"), stopped.second);
+  assert.ok(stopped.second.includes("启动隧道 / up"), stopped.second);
+  assert.ok(!stopped.second.includes("断开连接 / down"), stopped.second);
+  react.reset();
+});
+
 // ---- route admission (src/web.js) -------------------------------------------
 // /remote-tunnel/* hands out a URL carrying a one-time launch token, so it must
 // go through the platform's own fence + browser-session check.

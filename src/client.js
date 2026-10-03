@@ -19,6 +19,12 @@ window.__ModuleLoader__.load({
     var COMMAND_VIEW = "conversation.chat.commandview";
     // The strip above the composer: always rendered, in an empty session too.
     var DOCK = "conversation.composer.dock";
+    // The right sidebar: one tab type plus the pane that renders it. This is the
+    // only entry the plugin can offer in a session with no model history.
+    var TAB_PANE = "sidebar.right.pane.tab";
+    var TAB_ID = "dsh-remote-tunnel/hosts";
+    var TAB_KIND = "remote-hosts";
+    var TAB_TITLE = "远程主机";
     var React = require("react");
     var h = React.createElement;
 
@@ -166,6 +172,167 @@ window.__ModuleLoader__.load({
         return function () { clearInterval(timer); };
       }, [refresh]);
       return { status: state[0], refresh: refresh };
+    }
+
+    /**
+     * The definition of the right sidebar's「远程主机」tab type.
+     *
+     * A page type names no `patterns`: it is opened by kind (the guide capsule,
+     * or `sidebarRight.openTab("remote-hosts")`), never by a resource address.
+     * `title`/`description` are functions because the guide resolves them when
+     * it renders, exactly like the shipped files/browser types do it.
+     */
+    function hostsDefinition() {
+      return {
+        id: TAB_ID,
+        kind: TAB_KIND,
+        title: function () { return TAB_TITLE; },
+        guide: [{
+          // Sorted against the shipped entries (files 10, browser 30) so ours
+          // keeps a stable place at the end of the guide.
+          id: "hosts",
+          order: 50,
+          title: function () { return TAB_TITLE; },
+          description: function () { return "管理远程隧道,把远端 dsh web 开进侧栏"; }
+        }]
+      };
+    }
+
+    /**
+     * The「远程主机」pane.
+     *
+     * Why it exists: both 0.2.0 entries are gated by the conversation itself.
+     * The /remote card lives in the transcript, which a session without model
+     * history does not render (it shows the hero page), and
+     * `conversation.composer.dock` is not rendered in the hero variant either,
+     * so a brand-new session had no visible entry at all. The sidebar draws its
+     * tab strip and its guide in every session state, so this pane is the one
+     * entry that is always reachable.
+     */
+    function HostsPanel(props) {
+      // The framework injects `useTabInfo` into the body's props; the params an
+      // opener passed (e.g. the host a card or dock button was acting on) arrive
+      // as `tab.navigation.params`.
+      var info = props && typeof props.useTabInfo === "function" ? props.useTabInfo() : undefined;
+      var params = info && info.tab && info.tab.navigation ? info.tab.navigation.params : undefined;
+      var preferred = params && typeof params.host === "string" ? params.host : null;
+      var tunnelState = useTunnelStatus();
+      var status = tunnelState.status;
+      var refresh = tunnelState.refresh;
+      var busyState = React.useState("");
+      var errorState = React.useState(null);
+      var confirmState = React.useState(false);
+      var pickState = React.useState(preferred);
+      var busy = busyState[0], setBusy = busyState[1];
+      var error = errorState[0], setError = errorState[1];
+      var confirming = confirmState[0], setConfirming = confirmState[1];
+      var picked = pickState[0], setPicked = pickState[1];
+      // The disconnect confirmation expires by itself, so a stray first click
+      // can never arm the destructive action indefinitely.
+      React.useEffect(function () {
+        if (!confirming) return undefined;
+        var timer = setTimeout(function () { setConfirming(false); }, 5000);
+        return function () { clearTimeout(timer); };
+      }, [confirming]);
+
+      var hosts = status && Array.isArray(status.hosts) ? status.hosts : [];
+      var tunnels = status && Array.isArray(status.tunnels) ? status.tunnels : [];
+
+      function target() {
+        if (picked !== null && picked !== "") return picked;
+        if (tunnels.length > 0) return tunnels[0].alias;
+        return hosts.length > 0 ? hosts[0].alias : undefined;
+      }
+
+      // Multi-host: the pane is about the selected host, not about "a" tunnel.
+      var alias = target();
+      var current = null;
+      for (var index = 0; index < tunnels.length; index += 1) {
+        if (tunnels[index].alias === alias) { current = tunnels[index]; break; }
+      }
+
+      function work(mode, promise) {
+        setBusy(mode);
+        setError(null);
+        setConfirming(false);
+        promise.then(function () { setBusy(""); refresh(); },
+          function (failure) { setBusy(""); setError(textOf(failure)); });
+      }
+
+      function start() {
+        if (alias === undefined) {
+          setError("还没有可用主机 —— 在 ~/.ssh/config 里定义一个,或用 hosts add 添加");
+          return;
+        }
+        work("up", callHost("up?host=" + encodeURIComponent(alias)));
+      }
+
+      function stop() {
+        if (alias === undefined) return;
+        work("down", callHost("down?host=" + encodeURIComponent(alias)));
+      }
+
+      function openIn(mode) {
+        work(mode, mode === "browser"
+          ? callHost("open?mode=browser" + hostQuery(alias))
+          : openPanel(alias));
+      }
+
+      var children = [
+        h("div", { key: "head", style: S.head },
+          h("span", null, TAB_TITLE),
+          h("span", { key: "state", style: S.badge, title: "隧道状态 / tunnel" },
+            h("span", { style: Object.assign({}, S.dot, { background: current !== null ? TONE.ok : TONE.running }) }),
+            current !== null ? "已连接 / connected" : "未连接 / not connected"))
+      ];
+
+      if (status !== null && hosts.length > 1) {
+        children.push(h("div", { key: "pick", style: S.row },
+          h("span", { style: S.muted }, "主机 / host"),
+          h("select", {
+            style: S.select,
+            value: alias === undefined ? "" : alias,
+            onChange: function (event) { setPicked(event.target.value); }
+          }, hosts.map(function (item) {
+            return h("option", { key: item.alias, value: item.alias }, item.alias + " · " + item.host + ":" + item.port);
+          }))));
+      }
+
+      children.push(h("div", { key: "tunnel", style: S.muted },
+        current !== null
+          ? "隧道:" + current.alias + " · " + current.host + ":" + current.remotePort + " · " + current.url + (current.workspace ? " · " + current.workspace : "")
+          : (status === null ? "读取状态中… / reading status" : "当前没有隧道在跑 / no tunnel is up")));
+
+      var buttons = [];
+      if (status !== null && current === null) {
+        buttons.push(h("button", { key: "up", style: S.button, disabled: busy !== "", onClick: start },
+          busy === "up" ? "连接中…" : "启动隧道 / up"));
+      }
+      if (current !== null) {
+        buttons.push(h("button", {
+          key: "down",
+          style: confirming ? S.danger : S.button,
+          disabled: busy !== "",
+          onClick: function () { if (confirming) stop(); else setConfirming(true); }
+        }, busy === "down" ? "断开中…" : confirming ? "确认断开?" : "断开连接 / down"));
+      }
+      buttons.push(h("button", { key: "panel", style: S.button, disabled: busy !== "", onClick: function () { openIn("panel"); } },
+        busy === "panel" ? "打开中…" : "在侧栏打开"));
+      buttons.push(h("button", { key: "browser", style: S.button, disabled: busy !== "", onClick: function () { openIn("browser"); } },
+        busy === "browser" ? "打开中…" : "在浏览器打开"));
+      buttons.push(h("button", { key: "refresh", style: S.button, disabled: busy !== "", onClick: refresh }, "刷新 / refresh"));
+      children.push(h("div", { key: "buttons", style: S.row }, buttons));
+
+      if (confirming) {
+        children.push(h("div", { key: "warn", style: S.muted },
+          "再次点击「确认断开?」将停止隧道、停掉服务器上的 dsh-web 并释放端口(5 秒后自动取消)"));
+      }
+      if (status !== null && hosts.length === 0) {
+        children.push(h("div", { key: "empty", style: S.muted },
+          "没有可用主机 —— 在 ~/.ssh/config 里定义一个,或用 hosts add 添加"));
+      }
+      if (error !== null) children.push(h("div", { key: "error", style: S.error }, error));
+      return h("div", { style: S.card }, children);
     }
 
     return {
@@ -387,6 +554,22 @@ window.__ModuleLoader__.load({
           report("service", "sidebarRight");
         });
 
+        // The right sidebar's tab type. `register` throws on a duplicate id, so
+        // the disposer must be owned by this plugin's own context: that is what
+        // ctx.effect is for, and it is also how the shipped types do it.
+        whenService(ctx, "sidebarRightTabs", function (tabs) {
+          try {
+            var registerType = function () { return tabs.register(hostsDefinition()); };
+            if (typeof ctx.effect === "function") ctx.effect(registerType, "dsh-remote-tunnel: remote-hosts tab type");
+            else registerType();
+            // Reported after the call, so the event means the type is really in
+            // the registry — not merely that we asked for it.
+            report("tab-type", TAB_KIND);
+          } catch (error) {
+            report("error", "tab-type: " + textOf(error));
+          }
+        });
+
         // The chat dispatches this child slot with entryKey = command name, so
         // every /remote node gets our card instead of the generic one.
         whenService(ctx, "slots", function (slots) {
@@ -401,6 +584,13 @@ window.__ModuleLoader__.load({
             slots.inject(DOCK, function () {
               var disposer = slots.register({ name: DOCK, id: "remote-tunnel", order: 10 }, Dock);
               report("dock", DOCK + "#remote-tunnel");
+              return disposer;
+            });
+            // The body of the tab type registered above: the framework injects
+            // useTabInfo() into its props and forwards navigation.params.
+            slots.inject(TAB_PANE, function () {
+              var disposer = slots.register({ name: TAB_PANE, key: TAB_ID }, HostsPanel);
+              report("pane", TAB_PANE + "#" + TAB_ID);
               return disposer;
             });
           } catch (error) {
