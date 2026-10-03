@@ -782,3 +782,35 @@ integration **17/17**;隔离冒烟 bundle **200 / 44338 字节**,含 `手动添�
 
 **⚠️ 待用户决定**:这三份文档**早已提交进公开 GitHub 仓库**,所以同样的信息在 GitHub 上是公开的(仅 npm 排除不等于"没公开")。可选:(a) 只做 npm 排除(现状);
 (b) 把仓库文档里的主机别名/IP 换成占位符(`lab` / `192.0.2.10`)—— 注意 git 历史里仍在,彻底清除要重写历史;(c) 把仓库改为私有。另:README 面板截图会显示主机行,拍摄前需要改名或打码。
+
+## 31. 0.2.1 已发布 + 隐私清洗 + 服务器登录审计(2026-10-03)
+
+### 发布(用户拍板"立刻发")
+
+| 步骤 | 结果 |
+|---|---|
+| `git merge --ff-only feat/0.2.1-remote-hosts-panel` | main `0958dc2` → **`c1bc13d`**(19 文件、+2070/−104) |
+| `git push origin main` | ✅ `0958dc2..c1bc13d` |
+| `git tag -a v0.2.1` + push | ✅ tag → `c1bc13d` |
+| CI `publish.yml` | ✅ 跑完 → npm 上线:**`dist-tags.latest = 0.2.1`**;GitHub Release `v0.2.1` 已生成 |
+| **发布包复核** | 从 registry 拉真实 `dsh-remote-tunnel-0.2.1.tgz` 解包:**31 文件,敏感串 0 命中** ✅ |
+
+### 隐私清洗(用户选 (b):清洗当前文件)
+- 三份文档里的 ssh 别名、服务器地址、known_hosts 条目、Windows 绝对路径、`/home/<user>`、远端主机名**全部占位符化**
+  (`lab` / `192.0.2.10` / `192.0.2.55` / `<workspace>` / `<DSH_HOME>` / `<DSH_APP>` / `<node.exe 路径>` / `<server-host>`),共 95 处替换;
+  审计段落里引用原值的文字也一并改述。仓库跟踪文件复扫 **0 命中**(git-ignored 的本地笔记与本地清单除外)。
+- **git 历史仍保留原值** —— 这是 (b) 的已知代价;要彻底移除只能重写历史(未做,风险大)或把仓库改私有(等用户决定)。
+- **npm 0.2.0(已发布的旧包)仍含这些信息**,unpublish 待办:本机 `npm whoami` 返回 **E401**(未登录),需要用户 `npm login` 后执行
+  `npm unpublish dsh-remote-tunnel@0.2.0 --force`(0.2.0 发布于 10-02 19:08,72 小时窗口内;注意第三方镜像与已下载者无法召回)。
+
+### 服务器登录审计(用户要求:"有没有其余人登录了我的 XDU-zc")
+- `hostname` = `<server-host>`,当前 **4 个会话**:`being`(图形会话 :1)、`zt`、`zqc`、`wx`(tmux,均自 09-22 起)—— **这是一台多人共享机器**;
+- `last -n 300` 的来源 IP 统计:**只有 `192.168.1.192`(局域网)×194** —— 记录窗口(wtmp 自 09-20)内**没有任何外部 IP 登录**;
+- 当前 22 端口 established 连接 2 条,同样来自 `192.168.1.192`;
+- `~/.ssh/authorized_keys`:2 把 —— ed25519(`len@XDU-zc`)+ **一把无注释 RSA 2048**;文件自 **4 月 27 日**起未改动(近期没人加过钥匙);
+- 监听端口:22(公网)、25(postfix)、**dsh web 只在 `127.0.0.1:3080`** ⇒ 没有暴露到公网 ✅;
+- `/var/log/auth.log` 权限 `root:adm 640`,当前用户读不到 ⇒ **失败登录/爆破尝试未能核实**,需要 `sudo`(见下)。
+
+**待用户决定/操作**:① 若要确认那把无注释 RSA 公钥是不是自己的;② `ssh lab 'sudo grep -aiE "Failed password|Invalid user" /var/log/auth.log | tail -30'` 看失败登录;
+③ `npm login` 后 unpublish 0.2.0;④ GitHub 侧是否改私有(可选,最彻底)。
+另:README 截图待补,拍摄前先在面板里「隐藏」主机或打码。
