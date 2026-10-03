@@ -158,13 +158,13 @@ test("normalizeConfig merges user values over defaults", () => {
 
 test("toggleHidden: validated, reversible, never duplicated", () => {
   const config = { hiddenHosts: [] };
-  assert.deepEqual(toggleHidden(config, "XDU-zc", true), { key: "XDU-zc", hidden: true });
-  assert.deepEqual(config.hiddenHosts, ["XDU-zc"]);
-  toggleHidden(config, "XDU-zc", true);
-  assert.deepEqual(config.hiddenHosts, ["XDU-zc"], "hiding twice must not duplicate");
+  assert.deepEqual(toggleHidden(config, "lab", true), { key: "lab", hidden: true });
+  assert.deepEqual(config.hiddenHosts, ["lab"]);
+  toggleHidden(config, "lab", true);
+  assert.deepEqual(config.hiddenHosts, ["lab"], "hiding twice must not duplicate");
   toggleHidden(config, "github.com:22", true);
-  assert.deepEqual(config.hiddenHosts, ["XDU-zc", "github.com:22"], "a candidate hides by host:port");
-  toggleHidden(config, "XDU-zc", false);
+  assert.deepEqual(config.hiddenHosts, ["lab", "github.com:22"], "a candidate hides by host:port");
+  toggleHidden(config, "lab", false);
   assert.deepEqual(config.hiddenHosts, ["github.com:22"]);
   toggleHidden(config, "github.com:22", false);
   assert.deepEqual(config.hiddenHosts, [], "revealing an entry that is not hidden is a no-op");
@@ -301,7 +301,7 @@ function loadClientBundle() {
     hosts: [{ alias: "lab", host: "10.0.0.1", port: 22, origin: "plugin-config" }],
     discovered: [
       { alias: "192.0.2.55", suggestedAlias: "192.0.2.55", key: "192.0.2.55:22", host: "192.0.2.55", port: 22, origin: "known-hosts", managed: false },
-      { alias: "101.43.145.128:6104", suggestedAlias: "101.43.145.128-6104", key: "101.43.145.128:6104", host: "101.43.145.128", port: 6104, origin: "known-hosts", managed: false }
+      { alias: "192.0.2.77:6104", suggestedAlias: "192.0.2.77-6104", key: "192.0.2.77:6104", host: "192.0.2.77", port: 6104, origin: "known-hosts", managed: false }
     ],
     hidden: [],
     hashed: 2,
@@ -597,14 +597,14 @@ test("client bundle: the pane lists hosts, offers discovered candidates and spel
   // display text, not an alias: the write must carry the suggested alias.
   const portRow = findAll(tree, (element) => element.type === "div"
     && element.children.some((child) => child && child.type === "span"
-      && Array.isArray(child.children) && child.children[0] === "101.43.145.128:6104 · 101.43.145.128:6104"))[0];
+      && Array.isArray(child.children) && child.children[0] === "192.0.2.77:6104 · 192.0.2.77:6104"))[0];
   assert.ok(portRow, "the non-default-port candidate must be listed");
   const portAdd = findElement(portRow, (element) => element.type === "button");
   portAdd.props.onClick();
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(
     load.state.requests.filter((url) => url.includes("hosts/add")).slice(1),
-    ["/remote-tunnel/hosts/add?confirm=1&alias=101.43.145.128-6104&host=101.43.145.128&port=6104"]
+    ["/remote-tunnel/hosts/add?confirm=1&alias=192.0.2.77-6104&host=192.0.2.77&port=6104"]
   );
 
   // Removing a managed host is a two-step action: the first click only arms it.
