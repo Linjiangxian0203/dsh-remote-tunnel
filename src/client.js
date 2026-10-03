@@ -25,6 +25,11 @@ window.__ModuleLoader__.load({
     var TAB_ID = "dsh-remote-tunnel/hosts";
     var TAB_KIND = "remote-hosts";
     var TAB_TITLE = "远程连接";
+    // apply() installs this seam. The pane below is declared here, outside the
+    // plugin context, so it cannot see the context-scoped helpers (openPanel and
+    // the sidebar service) that the card and the dock use — reaching for them
+    // directly was a ReferenceError that made "在侧栏打开" do nothing at all.
+    var openTabFromPane = null;
     var React = require("react");
     var h = React.createElement;
 
@@ -137,10 +142,18 @@ window.__ModuleLoader__.load({
         background: "transparent", borderRadius: "8px",
         border: "1px solid rgba(212,56,13,0.55)", color: "#d4380d"
       },
+      // A native popup ignores `color: inherit` and paints its own surface, so
+      // the ink AND the surface are spelled out with the theme aliases — without
+      // them the host picker rendered white text on the white popup.
       select: {
         font: "inherit", fontSize: "12px", padding: "3px 6px", borderRadius: "8px",
-        color: "inherit", background: "transparent",
+        color: "var(--dsw-alias-label-primary, inherit)",
+        background: "var(--dsw-alias-bg-base, #1c1c20)",
         border: "1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.4))"
+      },
+      option: {
+        color: "var(--dsw-alias-label-primary, inherit)",
+        background: "var(--dsw-alias-bg-base, #1c1c20)"
       },
       muted: { opacity: 0.65, fontSize: "12px" },
       error: { color: "var(--dsw-alias-label-error, #d4380d)", fontSize: "12px" },
@@ -156,6 +169,7 @@ window.__ModuleLoader__.load({
       // The host management rows: one line per host, one action each.
       section: { display: "flex", flexDirection: "column", gap: "4px", marginTop: "4px" },
       sectionTitle: { fontSize: "11px", opacity: 0.6, letterSpacing: "0.04em" },
+      sectionHead: { display: "flex", alignItems: "center", gap: "8px", justifyContent: "space-between" },
       hostRow: { display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" },
       mono: {
         flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -314,9 +328,17 @@ window.__ModuleLoader__.load({
       }
 
       function openIn(mode) {
-        work(mode, mode === "browser"
-          ? callHost("open?mode=browser" + hostQuery(alias))
-          : openPanel(alias));
+        if (mode === "browser") {
+          work("browser", callHost("open?mode=browser" + hostQuery(alias)));
+          return;
+        }
+        work("panel", callHost("open?mode=panel" + hostQuery(alias)).then(function (state) {
+          if (typeof openTabFromPane !== "function") {
+            throw new Error("the sidebarRight service is unavailable (no Browser panel here)");
+          }
+          openTabFromPane(state, info && info.tab ? info.tab.actions : undefined);
+          return state;
+        }));
       }
 
       // Host writes: both routes demand confirm=1, so the panel spells it out.
@@ -361,7 +383,7 @@ window.__ModuleLoader__.load({
             value: alias === undefined ? "" : alias,
             onChange: function (event) { setPicked(event.target.value); }
           }, hosts.map(function (item) {
-            return h("option", { key: item.alias, value: item.alias }, item.alias + " · " + item.host + ":" + item.port);
+            return h("option", { key: item.alias, value: item.alias, style: S.option }, item.alias + " · " + item.host + ":" + item.port);
           }))));
       }
 
@@ -424,8 +446,10 @@ window.__ModuleLoader__.load({
           [h("div", { key: "t", style: S.sectionTitle }, "已配置主机 / managed hosts")].concat(managedRows)));
 
         // ~/.ssh/known_hosts proves a connection happened; these become usable
-        // once added, so the pane offers them with one click.
-        if (discovered.length > 0) {
+        // once added, so the pane offers them with one click. The section is
+        // always drawn and carries its own refresh: a host the user connects to
+        // while this pane is open should be one click away from appearing here.
+        if (Array.isArray(status.discovered)) {
           var shown = discovered.slice(0, 8);
           var foundRows = shown.map(function (candidate) {
             return h("div", { key: "d-" + candidate.alias, style: S.hostRow }, [
@@ -440,8 +464,17 @@ window.__ModuleLoader__.load({
               }, busy === "hide:" + candidate.key ? "忽略中…" : "忽略")
             ]);
           });
+          if (foundRows.length === 0) {
+            foundRows = [h("div", { key: "none", style: S.muted }, "暂时没有新主机 —— 用 ssh 连过一次的机器会出现在这里")];
+          }
           children.push(h("div", { key: "discovered", style: S.section },
-            [h("div", { key: "t", style: S.sectionTitle }, "发现的主机 / discovered in ~/.ssh")].concat(foundRows)));
+            [h("div", { key: "t", style: S.sectionHead }, [
+              h("span", { style: S.sectionTitle }, "发现的主机 / discovered in ~/.ssh"),
+              h("button", {
+                key: "rescan", style: S.dockButton, disabled: busy !== "",
+                onClick: function () { work("scan", callHost("status")); }
+              }, busy === "scan" ? "刷新中…" : "刷新")
+            ])].concat(foundRows)));
           if (discovered.length > shown.length) {
             children.push(h("div", { key: "more", style: S.muted },
               "还有 " + (discovered.length - shown.length) + " 台未显示"));
@@ -489,9 +522,36 @@ window.__ModuleLoader__.load({
           }
         }
 
+        /**
+         * Put a tunnel into the sidebar, for a caller *inside* the sidebar.
+         *
+         * The tab domain's own action is the documented door from within a page
+         * (the guide uses it: `tab.actions.openTab`); the root service's openTab
+         * is the outside opener the card and the dock call. Both are reached
+         * here, in the plugin context, and the pane gets this function through
+         * the seam above.
+         */
+        openTabFromPane = function (state, tabActions) {
+          if (tabActions !== undefined && typeof tabActions.openTab === "function") {
+            try {
+              tabActions.openTab("browser", { params: { url: state.authUrl } });
+              report("open-panel", "tab.actions");
+              return;
+            } catch (error) {
+              report("open-panel-fallback", textOf(error));
+            }
+          }
+          var service = sidebar();
+          if (service === undefined || service === null || typeof service.openTab !== "function") {
+            throw new Error("the sidebarRight service is unavailable (no Browser panel here)");
+          }
+          service.openTab("browser", { params: { url: state.authUrl } });
+          report("open-panel", "sidebarRight");
+        };
+
         async function openPanel(host) {
           var service = sidebar();
-          if (service === undefined || typeof service.openTab !== "function") {
+          if (service === undefined || service === null || typeof service.openTab !== "function") {
             throw new Error("the sidebarRight service is unavailable (no Browser panel here)");
           }
           var state = await callHost("open?mode=panel" + hostQuery(host));
@@ -588,7 +648,7 @@ window.__ModuleLoader__.load({
                 value: picked === null ? (target() || "") : picked,
                 onChange: function (event) { setPicked(event.target.value); }
               }, status.hosts.map(function (item) {
-                return h("option", { key: item.alias, value: item.alias }, item.alias + " · " + item.host + ":" + item.port);
+                return h("option", { key: item.alias, value: item.alias, style: S.option }, item.alias + " · " + item.host + ":" + item.port);
               }))));
           }
 

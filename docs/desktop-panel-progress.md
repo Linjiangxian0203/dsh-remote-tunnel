@@ -684,6 +684,30 @@ bundle **200 / 36195 字节**含 隐藏/忽略/已隐藏;unit **32/32**、integr
 
 **待办**:用户决定「首次使用引导 / 手动添加主机表单」是否进 0.2.1;然后重启验收。
 
+## 27. 第二轮反馈修正 —— 面板内「在侧栏打开」/ 下拉框对比度 / 发现区刷新(2026-10-03)
+
+**① 「在侧栏打开」在面板里没反应 —— 真 bug,根因是作用域(不是 API 用法)**
+- `HostsPanel` 定义在**工厂作用域**,而 `openPanel()` / `sidebar()` / `sidebarService` 都在 **apply 作用域**;
+  旧代码在面板里直接调 `openPanel(alias)` ⇒ 抛 `ReferenceError: openPanel is not defined`,点击静默失败。
+- 状态条(Dock)与命令卡片(Card)都定义在 apply 里,所以它们一直正常 —— 这正是"状态条能用、面板不能用"的原因。
+- 修法:工厂作用域留一个接缝 `var openTabFromPane = null;`,`apply` 里安装实现(与 Card/Dock 共用同一份 sidebar 解析);
+  面板内**优先**走官方"页内打开"路径 `tab.actions.openTab("browser", { params })`(指南页用的就是它:`tab.actions.openTab(entry.kind, …)`),
+  失败回退 `sidebarRight.openTab`;两条路径都写 black-box(`open-panel` / `open-panel-fallback`)。
+- 顺手把 `openPanel` 的 `service === undefined` 判断补成也拒绝 `null`(同类隐患)。
+- **教训**:新加的 fallback 单测第一版**也**踩了同一个作用域坑(`sidebarService` 不可见)⇒ 被测试抓出后改成接缝实现。
+  规矩:**面板组件里不要直接引用 apply 作用域的东西**。
+
+**② 主机下拉框白底白字**:原生 `<option>` 弹层不继承 `color: inherit`,而 select 是透明背景 ⇒ 系统白底 + 白字。
+修法:新增 `S.option`,select/option 都显式使用主题别名 `--dsw-alias-bg-base` / `--dsw-alias-label-primary`(带兜底色);
+卡片与面板两处 option 都补上(第一次替换因缩进不同只中一处,被单测抓出后补齐)。
+
+**③ 「发现的主机」要能手动刷新**:该区改成**常驻**(宿主半支持发现时总是渲染;空时提示"暂时没有新主机 —— 用 ssh 连过一次的机器会出现在这里"),
+标题右侧加「刷新」按钮(`work("scan", callHost("status"))`),15 秒自动轮询保留;0.2.0 宿主半(无 `discovered` 字段)不渲染该区(单测保留断言)。
+
+**验证**:unit **34/34**(新增:页内打开走 `tab.actions`、无 tab actions 时的回退、发现区常驻+刷新+空态、select/option 主题变量断言);integration **17/17**;
+隔离冒烟 bundle **200 / 39428 字节**,含 `openTabFromPane`、`tab.actions`、`dsw-alias-bg-base`、`rescan`、"暂时没有新主机",且无遗留 debug beacon;`status` 200。
+下拉框的视觉对比度只能真机确认 —— 等用户重启后看一眼。
+
 ### 验收通过后的发版顺序(阶段 7)
 
 1. `git merge --ff-only feat/0.2.1-remote-hosts-panel`(保持线性历史;树内容 = 验收的那个 commit);

@@ -642,6 +642,7 @@ test("client bundle: the pane follows the selected host, not the first tunnel", 
   load.state.discovered = [];
   const { react, registered } = await mountClient(load);
   const pane = registered.find((item) => item.definition.name === TAB_PANE);
+  try {
   react.reset();
   const props = { useTabInfo: () => ({ tab: { navigation: { params: {} } } }) };
   const tree = await renderTree(react, pane.Component, props);
@@ -652,6 +653,12 @@ test("client bundle: the pane follows the selected host, not the first tunnel", 
   // Switching to the host without a tunnel must offer up and withdraw down.
   const select = findElement(tree, (element) => element.type === "select");
   assert.ok(select, "two hosts must offer a picker");
+  // A native popup paints its own surface, so both the select and every option
+  // must carry the theme's surface + ink (the bug: white text on white).
+  assert.ok(String(select.props.style.background).includes("--dsw-alias-bg-base"), JSON.stringify(select.props.style));
+  assert.ok(String(select.props.style.color).includes("--dsw-alias-label-primary"), JSON.stringify(select.props.style));
+  const option = findElement(select, (element) => element.type === "option");
+  assert.ok(String(option.props.style.background).includes("--dsw-alias-bg-base"), JSON.stringify(option.props.style));
   select.props.onChange({ target: { value: "lab" } });
   react.begin();
   const switched = pane.Component(props);
@@ -660,7 +667,9 @@ test("client bundle: the pane follows the selected host, not the first tunnel", 
   assert.ok(switchedText.includes("未连接 / not connected"), switchedText);
   assert.ok(switchedText.includes("启动隧道 / up"), switchedText);
   assert.ok(!switchedText.includes("断开连接 / down"), switchedText);
-  react.reset();
+  } finally {
+    react.reset();
+  }
 });
 
 test("client bundle: the pane survives a cold status and a 0.2.0 host half", async () => {
@@ -738,7 +747,67 @@ test("client bundle: hiding is reversible from the pane and never deletes anythi
   }
 });
 
-// ---- route admission (src/web.js) -------------------------------------------
+test("client bundle: the pane opens the workspace through the tab domain", async () => {
+  const load = loadClientBundle();
+  const { react, registered, opened } = await mountClient(load);
+  const pane = registered.find((item) => item.definition.name === TAB_PANE);
+  react.reset();
+  // Inside the sidebar, the tab's own action is the door the runtime documents
+  // (the guide uses it too); the root service is the outside opener.
+  const tabCalls = [];
+  const props = {
+    useTabInfo: () => ({
+      tab: { navigation: { params: {} }, actions: { openTab: (...args) => { tabCalls.push(args); } } }
+    })
+  };
+  try {
+    const tree = await renderTree(react, pane.Component, props);
+    findElement(tree, (element) => element.type === "button" && collectStrings(element).includes("在侧栏打开")).props.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.deepEqual(tabCalls, [["browser", { params: { url: "http://127.0.0.1:3081/?token=t" } }]]);
+    assert.equal(opened.length, 0, "the tab path must win inside the pane");
+  } finally {
+    react.reset();
+  }
+});
+
+test("client bundle: without tab actions the pane falls back, and it can rescan on demand", async () => {
+  const load = loadClientBundle();
+  const { react, registered, opened } = await mountClient(load);
+  const pane = registered.find((item) => item.definition.name === TAB_PANE);
+  react.reset();
+  const props = { useTabInfo: () => ({ tab: { navigation: { params: {} } } }) };
+  try {
+    const tree = await renderTree(react, pane.Component, props);
+    // A host without tab.actions still gets the old, service-based door.
+    findElement(tree, (element) => element.type === "button" && collectStrings(element).includes("在侧栏打开")).props.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.deepEqual(opened, [["browser", { params: { url: "http://127.0.0.1:3081/?token=t" } }]]);
+
+    // The discovered section is always drawn, with its own refresh.
+    const text = collectStrings(tree).join(" | ");
+    assert.ok(text.includes("发现的主机 / discovered in ~/.ssh"), text);
+    assert.ok(text.includes("刷新"), text);
+    load.state.requests.length = 0;
+    const rescan = findAll(tree, (element) => element.type === "button" && collectStrings(element).join("") === "刷新")[0];
+    assert.ok(rescan, "the discovered section must carry its own refresh");
+    rescan.props.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.ok(
+      load.state.requests.some((url) => url.includes("/status")),
+      "refresh must re-read the status: " + load.state.requests.join(", ")
+    );
+
+    // Empty discovery still shows the section, with a hint instead of rows.
+    load.state.discovered = [];
+    react.reset();
+    const empty = await renderTree(react, pane.Component, props);
+    const emptyText = collectStrings(empty).join(" | ");
+    assert.ok(emptyText.includes("暂时没有新主机"), emptyText);
+  } finally {
+    react.reset();
+  }
+});
 // /remote-tunnel/* hands out a URL carrying a one-time launch token, so it must
 // go through the platform's own fence + browser-session check.
 
