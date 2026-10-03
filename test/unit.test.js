@@ -808,6 +808,77 @@ test("client bundle: without tab actions the pane falls back, and it can rescan 
     react.reset();
   }
 });
+
+test("client bundle: a first-run pane teaches the steps and adds a host by hand", async () => {
+  const load = loadClientBundle();
+  load.state.hosts = [];          // nothing managed yet
+  load.state.discovered = [];     // and nothing discovered
+  const { react, registered } = await mountClient(load);
+  const pane = registered.find((item) => item.definition.name === TAB_PANE);
+  react.reset();
+  const props = { useTabInfo: () => ({ tab: { navigation: { params: {} } } }) };
+  // Each render must settle the status fetch (the pane is cold on the first
+  // pass), so the helper mirrors renderTree's two passes.
+  const render = async () => {
+    react.begin();
+    pane.Component(props);
+    react.drain();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    react.begin();
+    const tree = pane.Component(props);
+    react.drain();
+    return tree;
+  };
+  try {
+    const tree = await render();
+    const text = collectStrings(tree).join(" | ");
+    // The empty state teaches the three steps instead of just saying "no host".
+    assert.ok(text.includes("还没有任何主机"), text);
+    assert.ok(text.includes("① 添加主机"), text);
+    assert.ok(text.includes("② 启动隧道 / up"), text);
+    assert.ok(text.includes("③ 在侧栏打开"), text);
+    assert.ok(text.includes("bootstrap"), "the guide must say how the remote is prepared: " + text);
+
+    // The form opens on demand and starts from the documented defaults.
+    findElement(tree, (el) => el.type === "button" && collectStrings(el).join("") === "+ 手动添加主机").props.onClick();
+    let form = await render();
+    const inputs = findAll(form, (el) => el.type === "input");
+    assert.equal(inputs.length, 5, "alias / host / port / user / workspace");
+    assert.equal(inputs[2].props.value, "22", "the port defaults to 22");
+
+    // A bad alias is refused in the pane: nothing is sent.
+    load.state.requests.length = 0;
+    findElement(form, (el) => el.type === "input" && el.props.placeholder === "lab").props.onChange({ target: { value: "bad alias" } });
+    form = await render();
+    findElement(form, (el) => el.type === "button" && collectStrings(el).join("") === "添加").props.onClick();
+    form = await render();
+    assert.equal(load.state.requests.filter((url) => url.includes("hosts/add")).length, 0, "an invalid alias must not reach the host");
+    assert.ok(collectStrings(form).join(" | ").includes("别名:"), "the pane must say what is wrong");
+
+    // A complete form writes through the confirmed route, then closes itself.
+    findElement(form, (el) => el.type === "input" && el.props.placeholder === "lab").props.onChange({ target: { value: "lab" } });
+    form = await render();
+    findElement(form, (el) => el.type === "input" && el.props.placeholder === "192.0.2.10").props.onChange({ target: { value: "192.0.2.10" } });
+    form = await render();
+    findElement(form, (el) => el.type === "input" && el.props.placeholder === "22").props.onChange({ target: { value: "6104" } });
+    form = await render();
+    findElement(form, (el) => el.type === "input" && el.props.placeholder === "留空 = ssh 默认").props.onChange({ target: { value: "alice" } });
+    form = await render();
+    load.state.requests.length = 0;
+    findElement(form, (el) => el.type === "button" && collectStrings(el).join("") === "添加").props.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.deepEqual(
+      load.state.requests.filter((url) => url.includes("hosts/add")),
+      ["/remote-tunnel/hosts/add?confirm=1&alias=lab&host=192.0.2.10&port=6104&user=alice"]
+    );
+    const after = await render();
+    assert.ok(!collectStrings(after).join(" | ").includes("手动添加主机 / add a host"), "the form closes on success");
+  } finally {
+    react.reset();
+  }
+});
+
+// ---- route admission (src/web.js) -------------------------------------------
 // /remote-tunnel/* hands out a URL carrying a one-time launch token, so it must
 // go through the platform's own fence + browser-session check.
 

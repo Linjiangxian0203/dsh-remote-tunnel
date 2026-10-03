@@ -129,7 +129,8 @@ strip is not rendered in the hero layout a new session shows.
 | **在侧栏打开** · **在浏览器打开** | Opens the remote dsh web in the sidebar Browser tab, or in the system browser |
 | **刷新 / refresh** | Re-reads `/remote-tunnel/status` (the pane also polls every 15 s) |
 | **vX.Y.Z** (beside the title) | The version the host half reported — the desktop app's Plugins page renders no version for any plugin |
-| **已配置主机 / managed hosts** | `~/.ssh/config` entries (read-only, labelled, **hideable**) and the plugin's own `config.yaml` entries (removable, two-step) |
+| **已配置主机 / managed hosts** | `~/.ssh/config` entries (read-only, labelled, **hideable**) and the plugin's own `config.yaml` entries (removable, two-step). **+ 手动添加主机** opens an inline form (alias / host / port / user / workspace) — a host can be defined without the CLI |
+| **第一条主机从哪来** | With no host at all the pane walks you through it: ① add one (the form, or a discovered candidate) → ② 启动隧道 / up → ③ 在侧栏打开. It also names the one remote prerequisite: `dsh --profile remote bootstrap <别名>` |
 | **发现的主机 / discovered in ~/.ssh** | Plaintext `~/.ssh/known_hosts` entries — hosts this machine has connected to. **添加** writes one into the plugin's config, **忽略** puts it out of the way, and the section's own **刷新** re-scans on demand (it also polls every 15 s); **`~/.ssh` itself is never written to** |
 | **已隐藏 / hidden in this pane** | Everything you hid, each with a **恢复** button — hiding is a display preference, never a delete |
 
