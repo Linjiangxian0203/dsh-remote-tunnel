@@ -102,7 +102,7 @@ The local URL opens the dsh web **on the server**: chat and read/write server fi
 
 ## Desktop app panel
 
-Installed into the desktop profile, the remote dsh web opens **inside the right sidebar's Browser panel** — no trip to the system browser. The plugin adds three entry points:
+Installed into the desktop profile, the remote dsh web opens **inside the right sidebar's Browser panel** — no trip to the system browser. The plugin adds four entry points:
 
 | Entry point | Where | What it gives you |
 |---|---|---|
