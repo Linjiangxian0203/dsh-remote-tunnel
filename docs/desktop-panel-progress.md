@@ -3,7 +3,7 @@
 > 本文件是**断点文档**,给"重启桌面端之后的新会话"用。配套路线书:
 > [`desktop-web-refactor-route.md`](./desktop-web-refactor-route.md);勘查结论:
 > `G:\remote_ssh_dsh\_recon\desktop-app-report.md`。
-> 最后更新:2026-10-02(GUI 宿主 / 桌面 runtime = 0.2.0-rc.2;远端 = 0.2.0-rc.2)。
+> 最后更新:2026-10-03(0.2.1 开发分支 `feat/0.2.1-remote-hosts-panel`;GUI 宿主 / 桌面 runtime = 0.2.0-rc.2;远端 = 0.2.0-rc.2)。
 
 ## 0. 目标与验收
 
@@ -437,3 +437,46 @@ package.json:version 0.2.0、dsh.client.platform=web、exports["./client"]、exp
 
 > 注意:一旦 GUI 从 npm 装的是**真实副本**(不是 junction),仓库里的改动**不再对桌面端生效**;
 > 开始 0.2.1(侧栏「远程主机」面板)开发时,需要先把 link 安装加回来。
+
+
+## 18. 0.2.1 阶段 0 —— 分支、基线、bundle 热更新预研(2026-10-03)
+
+**分支**:`feat/0.2.1-remote-hosts-panel`(从 main@0958dc2 建;`.git` 就在工作区,分支不占 C 盘)。
+用户拍板:分支上开发 → 真机验收 → 通过后 `merge --ff-only` 回 main → 打 tag 发版。
+
+**基线双绿**:unit **21/21**;integration **17/17**(必须先 `$env:TEMP=G:\remote_ssh_dsh\_tmp`/`TMP` 同值)。
+
+**安装形态复核**(计划 §3 要求"先确认 link 还是副本"):desktop 与 `_smoke\dsh-home\profiles\web` 两个 profile 都是
+**Junction → 仓库**;桌面端进程启动于 10/3 11:32/11:41,**晚于** Junction 创建时间(10/2 16:06)⇒ 用户当前 GUI 跑的就是仓库代码,
+不需要再跑 `plugin add`。旁证:`/remote-tunnel/not-an-action` → **401**(我们的 admit 先生效)、`/zzz-not-mounted-xyz` → 404
+⇒ 插件此刻在 GUI 里是活的。
+
+**⚠️ 关键坑(本轮最重要的发现):client bundle 的 rev 来自文件 stat,改了文件就必须重启宿主**
+
+- 源码证据 `@deepseek-ai/dsh-client-modules/lib/index.js:192-199`:
+  `artifactRevision = sha1(mtimeMs + ctimeMs + size)`(12 位 hex);`:158` 注释
+  "Versioned code is immutable; mismatched revisions are rejected instead of serving newer bytes";
+  bundle URL 形如 `/plugins/??dsh-remote-tunnel/client.js&rev=<12hex>`(`:203-209`)。
+- 隔离 web profile(19399)实测四步:
+  1. 原状 `rev=a8aaddac3e23` → **200**(len 19980);
+  2. 只在 client.js 头部注释加一个 marker(内容变了)→ **同一个 rev 立即 404**;
+  3. **把文件 byte 复原后(md5 与改动前一致),同一个 rev 仍 404** ⇒ 不是内容哈希,ctime 参与且不可复原;
+  4. 杀掉宿主重启 → 发布新 rev `831d5e9044c9` → **200**,len 仍 19980。
+- 结论:**任何一次 `src/client.js` 改动(包括 `git checkout` 切分支/回滚)都会让运行中宿主的旧 rev 永久 404,
+  只能重启宿主重新发布。** 因此:
+  - 真机验收**必须彻底重启桌面端**,不能只刷新页面 —— 计划里"改 profile 才需重启"要修正为"**改 client bundle 就需要重启**";
+  - 开发期每改一次 client.js,隔离 profile 也要重启一次再冒烟(否则看到的是 404,容易误判成代码问题)。
+- 副作用告知:阶段 0 的预研 marker 已改过一次 client.js 的 mtime/ctime(内容已 byte 复原,git diff 干净)。
+  **用户当前 GUI 的插件客户端半在重启前加载不到**(已加载的页面不受影响,只是别刷新);下次重启自动恢复。
+
+**冒烟环境备查**(隔离 home,patch 里 `auth:false` 便于匿名请求):
+
+```powershell
+$env:DSH_HOME='G:\remote_ssh_dsh\_smoke\dsh-home'
+& 'E:\Applications\dsh\resources\runtime\cli\bin\dsh.cmd' --profile web --no-open --port 19399
+# 取 bundle 路由(含 rev):GET / 的 index 里搜 'dsh-remote-tunnel/client.js&rev='
+# 停:job_kill 只杀 pwsh 包装进程 —— 必须找到监听 19399 的 PID 再 Stop-Process
+Get-NetTCPConnection -State Listen -LocalPort 19399 | Select-Object OwningProcess
+```
+
+**下一步**:阶段 1(3c-1)—— 注册 tab 类型 `remote-hosts` + 指南页入口 + 单测。
