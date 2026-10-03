@@ -480,3 +480,28 @@ Get-NetTCPConnection -State Listen -LocalPort 19399 | Select-Object OwningProces
 ```
 
 **下一步**:阶段 1(3c-1)—— 注册 tab 类型 `remote-hosts` + 指南页入口 + 单测。
+
+
+## 19. 0.2.1 阶段 1+2 完成 —— 侧栏 tab 类型 + 面板本体(2026-10-03)
+
+**交付**(只动 `src/client.js`,409 → 584 行;仍是手写 bundle、无构建步骤):
+
+- **tab 类型(3c-1)**:`hostsDefinition()` → `{ id: "dsh-remote-tunnel/hosts", kind: "remote-hosts", title, guide: [{ id: "hosts", order: 50, title, description }] }`。
+  页面型 tab **不给 `patterns`**(按官方 README:页面型靠 kind 打开);`title`/`description` 用**函数**,与 shipped 的 files/browser 写法一致
+  (指南页渲染时解析)。
+- **注册生命周期(容易踩死的地方)**:照官方"活证据" `ui-sidebar-documentpreview` 的写法 ——
+  `ctx.effect(() => ctx.sidebarRightTabs.register(def), "label")`。`register()` 内部把注册挂在自己的 ctx.effect 上并**返回 disposer**;
+  源码注释明说 caller 必须把 disposer 放进**自己的** ctx.effect(`ui-sidebar-right/lib/client.js:8677-8712`),否则插件行卸载/重挂时
+  第二次注册同一 id 会抛 `tab type id "…" is already registered`。服务缺失仍走既有 `whenService` 惰性解析(不抛)。
+- **面板本体(3c-2)**:`slots.inject("sidebar.right.pane.tab", () => slots.register({ name, key: TAB_ID }, HostsPanel))`;
+  `HostsPanel(props)` 用 `props.useTabInfo()` 读 `tab.navigation.params`(支持 `params.host`),复用 `useTunnelStatus()`/`callHost`/`openPanel`;
+  内容 = 标题 + 连接状态标签、多主机下拉(>1 台才出现)、隧道行、五个动作(启动隧道 / 断开两步确认 / 在侧栏打开 / 在浏览器打开 / 刷新)、空态提示。
+  **多主机口径**:面板展示的是"所选主机"的隧道(`tunnels.find(t => t.alias === alias)`),不是 0.2.0 卡片那种 `tunnels[0]`。
+
+**测试**:unit **24/24**(新增 3 条:tab 类型 + 指南条目 + disposer 归属;面板"已连接"渲染两种打开方式与断开两步;面板"未连接"给 up 且尊重 `params.host`)。
+
+**冒烟**(隔离 web profile 19399,重启宿主重新发布后):`rev=3be58b082986`,bundle **200 / 28809 字节**(0.2.0 时 19980);
+内容含 `sidebar.right.pane.tab`、`"remote-hosts"`、`dsh-remote-tunnel/hosts` 与指南描述;`/remote-tunnel/status` → 200。
+**纪律**:每改一次 client.js 都要重启宿主才能冒烟(§18 的 rev 机制)——本轮照做,否则看到的会是 404。
+
+**还没做**:3c-3a(`known_hosts` 只读发现)、3c-3b(`hosts add/remove` 写路由 + 面板候选/增删 UI)、README/截图、发版。
