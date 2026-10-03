@@ -3,3 +3,7 @@ node_modules/
 .DS_Store
 
 docs/optimization-plan.md
+
+# Local working notes / prompts — the user's own scratch material, not deliverables.
+docs/desktop-panel-kickoff-prompt.md
+docs/desktop-panel-prompt-short.md
