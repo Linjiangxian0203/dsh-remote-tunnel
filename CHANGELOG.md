@@ -8,11 +8,11 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [0.2.1]
 
-The right sidebar gets a **remote hosts panel** — the entry that works in a brand-new session — plus
-host discovery from `~/.ssh` and host management from the panel itself.
+The right sidebar gets a **remote connections panel** — the entry that works in a brand-new session —
+plus host discovery from `~/.ssh` and host management from the panel itself.
 
 ### Added
-- **Remote hosts panel** (right sidebar): a new tab type and its pane body, registered through the
+- **Remote connections panel** (right sidebar): a new tab type and its pane body, registered through the
   runtime's own extension seats — `ctx.effect(() => ctx.sidebarRightTabs.register({ id:
   "dsh-remote-tunnel/hosts", kind: "remote-hosts", guide: […] }))` and
   `ctx.slots.register({ name: "sidebar.right.pane.tab", key: … })`. The sidebar draws its tab strip and
@@ -30,10 +30,17 @@ host discovery from `~/.ssh` and host management from the panel itself.
 - **Host routes** `GET /remote-tunnel/hosts/add` and `GET /remote-tunnel/hosts/remove`: both run
   through `ctx.connection.admit()` like every other route, and require `confirm=1` so a prefetch or a
   link scanner cannot edit the config by accident.
+- **Version in the pane**: `GET /remote-tunnel/status` also returns `version`, and the pane shows it
+  beside its title — the desktop app's Plugins page renders no version for any plugin, so this is the
+  only place a user can see which build is live.
+- **Safe aliases for discovered hosts**: a candidate on a non-default port is spelled `host:port` in
+  `known_hosts`, which is display text rather than a legal alias (and a colon is not a legal Windows
+  file name either). Each candidate now carries a `suggestedAlias` (`host-port`) that the pane submits.
 - `GET /remote-tunnel/status` now also returns `discovered[]` and `discovery { path, exists, hashed,
   revoked }`; the CLI's `hosts` listing shows the same discovered section.
-- Tests: unit 21 → 28 (known_hosts parsing, host-input validation, the pure config helpers, the tab
-  registration, and the pane's rendering and write URLs).
+- Tests: unit 21 → 30 (known_hosts parsing, host-input validation, the pure config helpers, the tab
+  registration, the guide glyph, the pane's rendering, its write URLs, multi-host selection and the
+  0.2.0-host-half mixed state).
 
 ### Changed
 - `hosts add` / `hosts rm` on the CLI now go through the same validated manager path as the panel.

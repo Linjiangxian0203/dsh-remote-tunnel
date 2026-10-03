@@ -106,21 +106,21 @@ Installed into the desktop profile, the remote dsh web opens **inside the right 
 
 | Entry point | Where | What it gives you |
 |---|---|---|
-| **Remote hosts panel** | Right sidebar → guide → 远程主机 | Host list, tunnel state and every action — **the entry that works in a brand-new session** |
+| **Remote connections panel** | Right sidebar → guide → 远程连接 | Host list, tunnel state and every action — **the entry that works in a brand-new session** |
 | **Command card** | Type `/remote …` in a conversation | The command's output plus tunnel state, with "Open in browser", "Open in sidebar", "Start tunnel / up" and "Disconnect / down" |
 | **Status strip** | Above the composer | Always shows the tunnel state with one-click actions (hide it with `dock: false`) |
 | **Plugins page** | Left sidebar → 插件 | Enable/disable the plugin; its title and description follow the UI language |
 
 <!-- Screenshots (added in the 0.2.1 docs pass): docs/images/desktop-plugins.png, desktop-card.png, desktop-dock.png, desktop-panel.png -->
 
-### The sidebar「远程主机」panel
+### The sidebar「远程连接」panel
 
 The sidebar draws its tab strip and its guide in **every** session state, so this pane is the one entry
 that survives a conversation with no history: the command card needs transcript history, and the status
 strip is not rendered in the hero layout a new session shows.
 
 1. Open the right sidebar (the button in the conversation header, if it is collapsed).
-2. The guide lists **远程主机** — click the capsule (or the `+` control in the tab strip).
+2. The guide lists **远程连接** (a monitor glyph) — click the capsule (or the `+` control in the tab strip).
 3. The pane manages the selected host and its tunnel:
 
 | In the pane | What it does |
@@ -128,11 +128,14 @@ strip is not rendered in the hero layout a new session shows.
 | **启动隧道 / up** · **断开连接 / down** | Starts the tunnel, or stops it (two-step confirmation: tunnel, remote unit and registry release) |
 | **在侧栏打开** · **在浏览器打开** | Opens the remote dsh web in the sidebar Browser tab, or in the system browser |
 | **刷新 / refresh** | Re-reads `/remote-tunnel/status` (the pane also polls every 15 s) |
+| **vX.Y.Z** (beside the title) | The version the host half reported — the desktop app's Plugins page renders no version for any plugin |
 | **已配置主机 / managed hosts** | `~/.ssh/config` entries (read-only, marked) and the plugin's own `config.yaml` entries (removable, two-step) |
 | **发现的主机 / discovered in ~/.ssh** | Plaintext `~/.ssh/known_hosts` entries — hosts this machine has connected to. One click adds one to the plugin's config; **`~/.ssh` itself is never written to** |
 
 Hashed `known_hosts` entries (`HashKnownHosts yes`, the OpenSSH default on many systems) cannot be
-reversed into a hostname; the pane reports how many were skipped instead of guessing.
+reversed into a hostname; the pane reports how many were skipped instead of guessing. A candidate on a
+non-default port is spelled `host:port` in `known_hosts`, which is display text rather than a legal
+alias — adding it stores a safe alias such as `host-port` together with the real port.
 
 > The pane belongs to the **client** half. Changing `src/client.js` changes the bundle's revision, and a
 > running host refuses to serve a stale revision — **restart the desktop app** after updating the plugin.
@@ -172,7 +175,7 @@ The same values can be set directly on the `remote-tunnel` row's `config` in the
 ### Shell behaviours worth knowing (not bugs)
 
 - **A brand-new conversation shows no command card**: the chat view renders the welcome surface until the session has model history, and command lifecycles are deliberately not model history. After the first turn, every earlier `/remote` card appears at once — the commands had already run;
-- **The status strip only renders once a session has content**: it lives in the composer's dock seat, which the hero (empty-session) layout does not render. **0.2.1 adds a "Remote hosts" sidebar panel that is reachable in every session state**;
+- **The status strip only renders once a session has content**: it lives in the composer's dock seat, which the hero (empty-session) layout does not render. **0.2.1 ships the "Remote connections" sidebar panel instead, which is reachable in every session state**;
 - A third-party slash command's **description is not localized by the client** (only first-party definitions carry localizations), which is why the plugin ships bilingual command copy.
 
 ## Commands

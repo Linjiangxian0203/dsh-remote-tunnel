@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
     var TAB_PANE = "sidebar.right.pane.tab";
     var TAB_ID = "dsh-remote-tunnel/hosts";
     var TAB_KIND = "remote-hosts";
-    var TAB_TITLE = "远程主机";
+    var TAB_TITLE = "远程连接";
     var React = require("react");
     var h = React.createElement;
 
@@ -183,7 +183,30 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The definition of the right sidebar's「远程主机」tab type.
+     * The pane's glyph: a monitor, drawn inline.
+     *
+     * A guide entry's `icon` is a *component* the guide renders as
+     * `Icon({ size, className })` — without one it falls back to the guide's own
+     * cube (`sidebar-right/lib/client.js:461`). Drawing it here keeps the bundle
+     * dependency-free: the shipped types import their glyphs from
+     * `dsh-client-ui-primitives`, which a hand-written bundle with no build step
+     * cannot resolve.
+     */
+    function ComputerGlyph(props) {
+      var size = props && props.size !== undefined ? props.size : 22;
+      return h("svg", {
+        width: size, height: size, viewBox: "0 0 24 24", fill: "none",
+        stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round",
+        className: props ? props.className : undefined, "aria-hidden": "true", focusable: "false"
+      }, [
+        h("rect", { key: "screen", x: "2.5", y: "4", width: "19", height: "12.5", rx: "2" }),
+        h("path", { key: "neck", d: "M12 16.5v3.5" }),
+        h("path", { key: "base", d: "M8.5 20.5h7" })
+      ]);
+    }
+
+    /**
+     * The definition of the right sidebar's「远程连接」tab type.
      *
      * A page type names no `patterns`: it is opened by kind (the guide capsule,
      * or `sidebarRight.openTab("remote-hosts")`), never by a resource address.
@@ -201,13 +224,14 @@ window.__ModuleLoader__.load({
           id: "hosts",
           order: 50,
           title: function () { return TAB_TITLE; },
-          description: function () { return "管理远程隧道,把远端 dsh web 开进侧栏"; }
+          description: function () { return "连接远程主机,把远端 dsh web 开进侧栏"; },
+          icon: ComputerGlyph
         }]
       };
     }
 
     /**
-     * The「远程主机」pane.
+     * The「远程连接」pane.
      *
      * Why it exists: both 0.2.0 entries are gated by the conversation itself.
      * The /remote card lives in the transcript, which a session without model
@@ -296,8 +320,10 @@ window.__ModuleLoader__.load({
 
       // Host writes: both routes demand confirm=1, so the panel spells it out.
       function addHost(candidate) {
+        // The host half proposes the alias: a known_hosts spelling such as
+        // `host:port` is display text, not a legal alias (nor a legal file name).
         work("add:" + candidate.alias, callHost("hosts/add?confirm=1"
-          + "&alias=" + encodeURIComponent(candidate.alias)
+          + "&alias=" + encodeURIComponent(candidate.suggestedAlias || candidate.alias)
           + "&host=" + encodeURIComponent(candidate.host)
           + "&port=" + encodeURIComponent(String(candidate.port))));
       }
@@ -310,6 +336,11 @@ window.__ModuleLoader__.load({
       var children = [
         h("div", { key: "head", style: S.head },
           h("span", null, TAB_TITLE),
+          // The desktop app's Plugins page renders no version, so the pane
+          // carries the one the host half reported.
+          status !== null && typeof status.version === "string"
+            ? h("span", { key: "version", style: S.muted }, "v" + status.version)
+            : null,
           h("span", { key: "state", style: S.badge, title: "隧道状态 / tunnel" },
             h("span", { style: Object.assign({}, S.dot, { background: current !== null ? TONE.ok : TONE.running }) }),
             current !== null ? "已连接 / connected" : "未连接 / not connected"))
@@ -374,7 +405,7 @@ window.__ModuleLoader__.load({
               }
             }, busy === "remove:" + entry.alias ? "删除中…" : pendingRemove === entry.alias ? "确认删除?" : "删除"));
           } else {
-            row.push(h("span", { key: "src", style: S.muted }, "~/.ssh/config"));
+            row.push(h("span", { key: "src", style: S.muted }, "来自 ~/.ssh/config · 只读"));
           }
           return h("div", { key: "m-" + entry.alias, style: S.hostRow }, row);
         });
