@@ -6,6 +6,40 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+## [0.2.1]
+
+The right sidebar gets a **remote hosts panel** — the entry that works in a brand-new session — plus
+host discovery from `~/.ssh` and host management from the panel itself.
+
+### Added
+- **Remote hosts panel** (right sidebar): a new tab type and its pane body, registered through the
+  runtime's own extension seats — `ctx.effect(() => ctx.sidebarRightTabs.register({ id:
+  "dsh-remote-tunnel/hosts", kind: "remote-hosts", guide: […] }))` and
+  `ctx.slots.register({ name: "sidebar.right.pane.tab", key: … })`. The sidebar draws its tab strip and
+  its guide in every session state, so this entry also exists where 0.2.0 had none: a session with no
+  model history (the command card needs transcript history, and `conversation.composer.dock` is not
+  rendered in the hero layout).
+- **Panel actions**: start tunnel (up), disconnect (down, two-step confirmation), open in sidebar, open
+  in browser, refresh — following the *selected* host, not "the first tunnel".
+- **Host management**: managed hosts come from `~/.ssh/config` (read-only, labelled) and from the
+  plugin's own `config.yaml` (removable, two-step confirmation).
+- **Host discovery**: plaintext `~/.ssh/known_hosts` entries — hosts this machine connected to at least
+  once — are offered as candidates. Adding one writes the plugin's `config.yaml`; `~/.ssh` is never
+  written to. Hashed entries (`HashKnownHosts`, the OpenSSH default on many systems) and `@revoked`
+  lines cannot be resolved and are reported as counts; `@cert-authority` hosts are kept, wildcards dropped.
+- **Host routes** `GET /remote-tunnel/hosts/add` and `GET /remote-tunnel/hosts/remove`: both run
+  through `ctx.connection.admit()` like every other route, and require `confirm=1` so a prefetch or a
+  link scanner cannot edit the config by accident.
+- `GET /remote-tunnel/status` now also returns `discovered[]` and `discovery { path, exists, hashed,
+  revoked }`; the CLI's `hosts` listing shows the same discovered section.
+- Tests: unit 21 → 28 (known_hosts parsing, host-input validation, the pure config helpers, the tab
+  registration, and the pane's rendering and write URLs).
+
+### Changed
+- `hosts add` / `hosts rm` on the CLI now go through the same validated manager path as the panel.
+- Route failures answer with their meaning: `E_USAGE` → 400, `E_HOST_EXISTS` → 409,
+  `E_UNKNOWN_HOST` → 404 (anything else stays 500).
+
 ## [0.2.0]
 
 First release that supports the DSH **desktop app**, and the first one built for the 0.2.0 runtime line.
