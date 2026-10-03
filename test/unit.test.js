@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { parseSshConfig, findSshAlias } from "../src/ssh-config.js";
+import { parseSshConfig, findSshAlias, parseKnownHosts } from "../src/ssh-config.js";
 import { parseTsv, sanitizeField, REGISTRY_COLUMNS } from "../src/remote/registry.js";
-import { normalizeConfig, DEFAULT_CONFIG } from "../src/config.js";
+import { normalizeConfig, DEFAULT_CONFIG, validateHostInput, upsertHost, dropHost } from "../src/config.js";
 import { parsePort, parseIntArg } from "../src/cli-args.js";
 import { renderUnitBody } from "../src/remote/unit.js";
 import { readBootstrapScript, BOOTSTRAP_MARKER } from "../src/remote/bootstrap.js";
@@ -195,6 +195,70 @@ test("resolveMode: webStartup only ever promotes to service", () => {
   assert.equal(resolveMode(fakeCtx({ profile: "web", webStartup: undefined })), "service");
 });
 
+test("parseKnownHosts: plain, bracketed port, comma lists, hashed/revoked/patterns", () => {
+  const text = [
+    "# a comment",
+    "",
+    "192.0.2.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKz",
+    "[lab.example.com]:6104 ssh-rsa AAAAB3NzaC1yc2E",
+    "a.example.com,b.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAa",
+    "192.0.2.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKz",
+    "|1|Yc5D5b2v3nWq0k9mZg==|Q2m4Z9x0p1rS2tU3vW4xY5z6aB8=",
+    "@revoked 198.51.100.7 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBb",
+    "@cert-authority *.example.com ssh-rsa AAAAB3NzaC1yc2E",
+    "wild*.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICc",
+    "[2001:db8::1]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDd"
+  ].join("\r\n");
+  const parsed = parseKnownHosts(text);
+  assert.deepEqual(parsed.hosts.map((h) => [h.alias, h.host, h.port]), [
+    ["192.0.2.10", "192.0.2.10", 22],
+    ["lab.example.com:6104", "lab.example.com", 6104],
+    ["a.example.com", "a.example.com", 22],
+    ["b.example.com", "b.example.com", 22],
+    ["[2001:db8::1]:2222", "2001:db8::1", 2222]
+  ]);
+  // Hashed entries cannot be reversed; revoked ones are not offered; wildcards name no single host.
+  assert.equal(parsed.hashed, 1);
+  assert.equal(parsed.revoked, 1);
+  assert.equal(parseKnownHosts("").hosts.length, 0);
+});
+
+test("validateHostInput: normalizes a good definition and refuses the dangerous ones", () => {
+  assert.deepEqual(
+    validateHostInput({ alias: "lab", host: "192.0.2.10", port: "6104", user: "alice", workspace: "/srv/app" }),
+    { alias: "lab", host: "192.0.2.10", port: 6104, user: "alice", workspace: "/srv/app" }
+  );
+  assert.deepEqual(validateHostInput({ alias: "lab", host: "lab.example.com" }), { alias: "lab", host: "lab.example.com", port: 22 });
+  assert.deepEqual(validateHostInput({ alias: "v6", host: "2001:db8::1" }), { alias: "v6", host: "2001:db8::1", port: 22 });
+  const bad = [
+    { alias: "-x", host: "192.0.2.10" },
+    { alias: "a b", host: "192.0.2.10" },
+    { alias: "", host: "192.0.2.10" },
+    { alias: "lab", host: "" },
+    { alias: "lab", host: "host with space" },
+    { alias: "lab", host: "192.0.2.10", port: "0" },
+    { alias: "lab", host: "192.0.2.10", port: "70000" },
+    { alias: "lab", host: "192.0.2.10", user: "bad user" },
+    { alias: "lab", host: "192.0.2.10", workspace: "/tmp/x\ny" },
+    { alias: "lab", host: "192.0.2.10", workspace: "/tmp/\"x\"" }
+  ];
+  for (const input of bad) {
+    assert.throws(() => validateHostInput(input), (error) => error.code === "E_USAGE", JSON.stringify(input));
+  }
+});
+
+test("upsertHost/dropHost: replacement needs overwrite, unknown aliases are refused", () => {
+  const config = { hosts: {} };
+  upsertHost(config, { alias: "lab", host: "192.0.2.10", port: 22, user: "alice" });
+  assert.deepEqual(config.hosts.lab, { host: "192.0.2.10", port: 22, user: "alice" });
+  assert.throws(() => upsertHost(config, { alias: "lab", host: "192.0.2.11", port: 22 }), (error) => error.code === "E_HOST_EXISTS");
+  upsertHost(config, { alias: "lab", host: "192.0.2.11", port: 2200 }, { overwrite: true });
+  assert.deepEqual(config.hosts.lab, { host: "192.0.2.11", port: 2200 });
+  dropHost(config, "lab");
+  assert.deepEqual(config.hosts, {});
+  assert.throws(() => dropHost(config, "lab"), (error) => error.code === "E_UNKNOWN_HOST");
+});
+
 // ---- browser half (src/client.js) ------------------------------------------
 // The bundle only ever runs inside the web renderer, so this loads it with a
 // captured module loader, a stubbed React and a fake host, then renders the
@@ -206,16 +270,23 @@ function loadClientBundle() {
   const source = readFileSync(new URL("../src/client.js", import.meta.url), "utf8");
   const state = {
     dock: true,
-    tunnels: [{ alias: "lab", host: "10.0.0.1", remotePort: 3080, url: "http://127.0.0.1:3081", workspace: "/home/lab" }]
+    tunnels: [{ alias: "lab", host: "10.0.0.1", remotePort: 3080, url: "http://127.0.0.1:3081", workspace: "/home/lab" }],
+    hosts: [{ alias: "lab", host: "10.0.0.1", port: 22, origin: "plugin-config" }],
+    discovered: [{ alias: "192.0.2.55", host: "192.0.2.55", port: 22, origin: "known-hosts", managed: false }],
+    hashed: 2,
+    requests: []
   };
   let captured;
   const window = { __ModuleLoader__: { load: (definition) => { captured = definition; } } };
   const fetchStub = async (url) => {
+    state.requests.push(String(url));
     const body = String(url).includes("/status")
       ? {
         ok: true,
         config: { openIn: "ask", autoOpen: false, dock: state.dock },
-        hosts: [{ alias: "lab", host: "10.0.0.1", port: 22 }],
+        hosts: state.hosts,
+        discovered: state.discovered,
+        discovery: { path: "C:\\Users\\me\\.ssh\\known_hosts", exists: true, hashed: state.hashed, revoked: 0 },
         tunnels: state.tunnels
       }
       : { ok: true, alias: "lab", authUrl: "http://127.0.0.1:3081/?token=t" };
@@ -269,6 +340,30 @@ function collectStrings(value, out = []) {
   if (Array.isArray(value)) { value.forEach((item) => collectStrings(item, out)); return out; }
   if (typeof value === "object") collectStrings(value.children, out);
   return out;
+}
+
+/** The raw element tree of a settled render, for asserting on buttons. */
+async function renderTree(react, Component, props) {
+  react.begin();
+  Component(props);
+  react.drain();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  react.begin();
+  const tree = Component(props);
+  react.drain();
+  return tree;
+}
+
+/** Depth-first search for the first element a predicate accepts. */
+function findElement(value, predicate) {
+  if (value === null || value === undefined || typeof value !== "object") return undefined;
+  const children = Array.isArray(value) ? value : (value.children ?? []);
+  if (!Array.isArray(value) && predicate(value)) return value;
+  for (const child of children) {
+    const found = findElement(child, predicate);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 /** Render twice with the same state cells: once cold, once after the fetch settles. */
@@ -415,6 +510,56 @@ test("client bundle: the pane offers up when nothing is connected, and honours p
   assert.ok(stopped.second.includes("未连接 / not connected"), stopped.second);
   assert.ok(stopped.second.includes("启动隧道 / up"), stopped.second);
   assert.ok(!stopped.second.includes("断开连接 / down"), stopped.second);
+  react.reset();
+});
+
+test("client bundle: the pane lists hosts, offers discovered candidates and spells out both writes", async () => {
+  const load = loadClientBundle();
+  const { react, registered } = await mountClient(load);
+  const pane = registered.find((item) => item.definition.name === TAB_PANE);
+  react.reset();
+  const props = { useTabInfo: () => ({ tab: { navigation: { params: {} } } }) };
+  const tree = await renderTree(react, pane.Component, props);
+  const text = collectStrings(tree).join(" | ");
+  assert.ok(text.includes("已配置主机 / managed hosts"), text);
+  assert.ok(text.includes("lab · 10.0.0.1:22"), text);
+  assert.ok(text.includes("发现的主机 / discovered in ~/.ssh"), text);
+  assert.ok(text.includes("192.0.2.55 · 192.0.2.55:22"), text);
+  assert.ok(text.includes("2 条 known_hosts 记录已哈希"), text);
+
+  // Adding a candidate writes through the confirmed route, with its own values.
+  load.state.requests.length = 0;
+  const addButton = findElement(tree, (element) => element.type === "button" && collectStrings(element).includes("添加"));
+  assert.ok(addButton, "a discovered candidate must offer an add button");
+  addButton.props.onClick();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(
+    load.state.requests.filter((url) => url.includes("hosts/add")),
+    ["/remote-tunnel/hosts/add?confirm=1&alias=192.0.2.55&host=192.0.2.55&port=22"]
+  );
+
+  // Removing a managed host is a two-step action: the first click only arms it.
+  const removeButton = findElement(tree, (element) => element.type === "button" && collectStrings(element).includes("删除"));
+  assert.ok(removeButton, "a plugin-config host must offer a delete button");
+  removeButton.props.onClick();
+  react.begin();
+  const armed = pane.Component(props);
+  react.drain();
+  const armedText = collectStrings(armed).join(" | ");
+  assert.ok(armedText.includes("确认删除?"), armedText);
+  assert.equal(load.state.requests.filter((url) => url.includes("hosts/remove")).length, 0, "the first click must not delete");
+  const confirmButton = findElement(armed, (element) => element.type === "button" && collectStrings(element).includes("确认删除?"));
+  confirmButton.props.onClick();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(
+    load.state.requests.filter((url) => url.includes("hosts/remove")),
+    ["/remote-tunnel/hosts/remove?confirm=1&alias=lab"]
+  );
+  // An ssh-config host is not ours to delete.
+  load.state.hosts = [{ alias: "from-ssh-config", host: "10.0.0.9", port: 22, origin: "ssh-config" }];
+  react.reset();
+  const sshTree = await renderTree(react, pane.Component, props);
+  assert.equal(findElement(sshTree, (element) => element.type === "button" && collectStrings(element).includes("删除")), undefined);
   react.reset();
 });
 

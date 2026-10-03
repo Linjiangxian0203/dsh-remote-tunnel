@@ -79,6 +79,74 @@ export function loadConfig(home) {
   return { path, config: normalizeConfig(user) };
 }
 
+// Host definitions arrive from a form (the sidebar panel) or from the CLI, so
+// they are validated here, once, before anything writes them to disk.
+const ALIAS_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$/;
+const HOST_PATTERN = /^[A-Za-z0-9._:\[\]-]{1,255}$/;
+const USER_PATTERN = /^[A-Za-z0-9._@-]{1,64}$/;
+
+/**
+ * Validate one host definition.
+ *
+ * @param {{alias, host, port?, user?, workspace?}} input - raw form values.
+ * @returns a normalized `{alias, host, port, user?, workspace?}` definition.
+ * @throws TunnelError with code E_USAGE when a field cannot be trusted.
+ */
+export function validateHostInput(input = {}) {
+  const alias = String(input.alias ?? "").trim();
+  if (!ALIAS_PATTERN.test(alias)) {
+    throw new TunnelError(`invalid alias "${alias}" — letters, digits and . _ @ - only (max 64, no leading dash)`, { code: "E_USAGE" });
+  }
+  const host = String(input.host ?? "").trim();
+  if (!HOST_PATTERN.test(host)) {
+    throw new TunnelError(`invalid host "${host}" — a hostname, IPv4 or (bracketed) IPv6 address`, { code: "E_USAGE" });
+  }
+  const port = Number.parseInt(input.port ?? 22, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new TunnelError(`invalid port "${input.port}" — expected 1-65535`, { code: "E_USAGE" });
+  }
+  const rawUser = input.user === undefined || input.user === null ? "" : String(input.user).trim();
+  if (rawUser !== "" && !USER_PATTERN.test(rawUser)) {
+    throw new TunnelError(`invalid user "${rawUser}"`, { code: "E_USAGE" });
+  }
+  const rawWorkspace = input.workspace === undefined || input.workspace === null ? "" : String(input.workspace).trim();
+  if (rawWorkspace !== "" && (rawWorkspace.length > 512 || /[\r\n"']/.test(rawWorkspace))) {
+    // The remote unit renderer rejects quotes and newlines; refuse them here so
+    // a panel form can never stage a definition that `up` must reject later.
+    throw new TunnelError("invalid workspace path — no quotes or line breaks (max 512 chars)", { code: "E_USAGE" });
+  }
+  return {
+    alias,
+    host,
+    port,
+    ...(rawUser === "" ? {} : { user: rawUser }),
+    ...(rawWorkspace === "" ? {} : { workspace: rawWorkspace })
+  };
+}
+
+/** Add or replace one host in a normalized config (pure; caller saves). */
+export function upsertHost(config, entry, { overwrite = false } = {}) {
+  if (config.hosts[entry.alias] !== undefined && !overwrite) {
+    throw new TunnelError(`host "${entry.alias}" is already defined`, { code: "E_HOST_EXISTS" });
+  }
+  config.hosts[entry.alias] = {
+    host: entry.host,
+    port: entry.port,
+    ...(entry.user === undefined ? {} : { user: entry.user }),
+    ...(entry.workspace === undefined ? {} : { workspace: entry.workspace })
+  };
+  return config;
+}
+
+/** Remove one plugin-config host (pure; caller saves). */
+export function dropHost(config, alias) {
+  if (config.hosts[alias] === undefined) {
+    throw new TunnelError(`no plugin-config host "${alias}"`, { code: "E_UNKNOWN_HOST" });
+  }
+  delete config.hosts[alias];
+  return config;
+}
+
 export function saveConfig(home, config) {
   const path = configPath(home);
   mkdirSync(dirname(path), { recursive: true });

@@ -105,6 +105,17 @@ Commands:
         const ws = h.workspace ?? "(remote home)";
         reporter.out(`${h.alias.padEnd(20)} ${h.host}:${h.port}  user=${user}  workspace=${ws}  [${h.origin}]`);
       }
+      // ~/.ssh/known_hosts proves a connection happened; these are offered as
+      // candidates because nothing there names a user or a workspace.
+      const discovery = manager.discoverHosts();
+      if (discovery.hosts.length > 0) {
+        reporter.out("");
+        reporter.out("discovered in ~/.ssh/known_hosts (not managed — 'hosts add <alias> --host <ip>' to use one):");
+        for (const h of discovery.hosts) reporter.out(`${h.alias.padEnd(20)} ${h.host}:${h.port}  [${h.origin}]`);
+      }
+      if (discovery.knownHosts.hashed > 0) {
+        reporter.out(`(${discovery.knownHosts.hashed} hashed known_hosts entries cannot be listed — set HashKnownHosts no to see them)`);
+      }
     }).then(() => exit?.(0), (error) => { printError(error); exit?.(1); });
   });
 
@@ -116,15 +127,14 @@ Commands:
     .option("--workspace <dir>", "workspace root for the remote dsh web (default: remote home)")
     .action((alias, options) => {
       Promise.resolve().then(async () => {
-        const { path, config } = loadConfig(home);
-        config.hosts[alias] = {
+        const result = manager.addHost({
+          alias,
           host: options.host,
           port: parsePort(options.port, "--port"),
-          ...(options.user !== undefined ? { user: options.user } : {}),
-          ...(options.workspace !== undefined ? { workspace: options.workspace } : {})
-        };
-        saveConfig(home, config);
-        reporter.out(`host ${alias} added (${path})`);
+          user: options.user,
+          workspace: options.workspace
+        });
+        reporter.out(`host ${result.alias} added (${result.path})`);
       }).then(() => exit?.(0), (error) => { printError(error); exit?.(1); });
     });
 
@@ -132,11 +142,8 @@ Commands:
     .description("remove a host definition from the plugin config")
     .action((alias) => {
       Promise.resolve().then(async () => {
-        const { path, config } = loadConfig(home);
-        if (config.hosts[alias] === undefined) throw new TunnelError(`no plugin-config host "${alias}" (ssh-config entries are managed in ~/.ssh/config)`, { code: "E_UNKNOWN_HOST" });
-        delete config.hosts[alias];
-        saveConfig(home, config);
-        reporter.out(`host ${alias} removed (${path})`);
+        const result = manager.removeHost(alias);
+        reporter.out(`host ${result.alias} removed (${result.path})`);
       }).then(() => exit?.(0), (error) => { printError(error); exit?.(1); });
     });
 

@@ -152,7 +152,15 @@ window.__ModuleLoader__.load({
         color: "inherit", background: "transparent", borderRadius: "999px",
         border: "1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.4))"
       },
-      dockLabel: { display: "inline-flex", alignItems: "center", gap: "6px", fontWeight: 500 }
+      dockLabel: { display: "inline-flex", alignItems: "center", gap: "6px", fontWeight: 500 },
+      // The host management rows: one line per host, one action each.
+      section: { display: "flex", flexDirection: "column", gap: "4px", marginTop: "4px" },
+      sectionTitle: { fontSize: "11px", opacity: 0.6, letterSpacing: "0.04em" },
+      hostRow: { display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" },
+      mono: {
+        flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+      }
     };
 
     function hostQuery(alias) {
@@ -223,6 +231,8 @@ window.__ModuleLoader__.load({
       var errorState = React.useState(null);
       var confirmState = React.useState(false);
       var pickState = React.useState(preferred);
+      var removeState = React.useState(null);
+      var pendingRemove = removeState[0], setPendingRemove = removeState[1];
       var busy = busyState[0], setBusy = busyState[1];
       var error = errorState[0], setError = errorState[1];
       var confirming = confirmState[0], setConfirming = confirmState[1];
@@ -234,9 +244,15 @@ window.__ModuleLoader__.load({
         var timer = setTimeout(function () { setConfirming(false); }, 5000);
         return function () { clearTimeout(timer); };
       }, [confirming]);
+      React.useEffect(function () {
+        if (pendingRemove === null) return undefined;
+        var timer = setTimeout(function () { setPendingRemove(null); }, 5000);
+        return function () { clearTimeout(timer); };
+      }, [pendingRemove]);
 
       var hosts = status && Array.isArray(status.hosts) ? status.hosts : [];
       var tunnels = status && Array.isArray(status.tunnels) ? status.tunnels : [];
+      var discovered = status && Array.isArray(status.discovered) ? status.discovered : [];
 
       function target() {
         if (picked !== null && picked !== "") return picked;
@@ -276,6 +292,19 @@ window.__ModuleLoader__.load({
         work(mode, mode === "browser"
           ? callHost("open?mode=browser" + hostQuery(alias))
           : openPanel(alias));
+      }
+
+      // Host writes: both routes demand confirm=1, so the panel spells it out.
+      function addHost(candidate) {
+        work("add:" + candidate.alias, callHost("hosts/add?confirm=1"
+          + "&alias=" + encodeURIComponent(candidate.alias)
+          + "&host=" + encodeURIComponent(candidate.host)
+          + "&port=" + encodeURIComponent(String(candidate.port))));
+      }
+
+      function removeHost(entry) {
+        setPendingRemove(null);
+        work("remove:" + entry.alias, callHost("hosts/remove?confirm=1&alias=" + encodeURIComponent(entry.alias)));
       }
 
       var children = [
@@ -326,6 +355,56 @@ window.__ModuleLoader__.load({
       if (confirming) {
         children.push(h("div", { key: "warn", style: S.muted },
           "再次点击「确认断开?」将停止隧道、停掉服务器上的 dsh-web 并释放端口(5 秒后自动取消)"));
+      }
+
+      if (status !== null) {
+        var managedRows = hosts.map(function (entry) {
+          var removable = entry.origin === "plugin-config";
+          var row = [
+            h("span", { key: "n", style: S.mono }, entry.alias + " · " + entry.host + ":" + entry.port)
+          ];
+          if (removable) {
+            row.push(h("button", {
+              key: "rm",
+              style: pendingRemove === entry.alias ? S.danger : S.dockButton,
+              disabled: busy !== "",
+              onClick: function () {
+                if (pendingRemove === entry.alias) removeHost(entry);
+                else setPendingRemove(entry.alias);
+              }
+            }, busy === "remove:" + entry.alias ? "删除中…" : pendingRemove === entry.alias ? "确认删除?" : "删除"));
+          } else {
+            row.push(h("span", { key: "src", style: S.muted }, "~/.ssh/config"));
+          }
+          return h("div", { key: "m-" + entry.alias, style: S.hostRow }, row);
+        });
+        children.push(h("div", { key: "managed", style: S.section },
+          [h("div", { key: "t", style: S.sectionTitle }, "已配置主机 / managed hosts")].concat(managedRows)));
+
+        // ~/.ssh/known_hosts proves a connection happened; these become usable
+        // once added, so the pane offers them with one click.
+        if (discovered.length > 0) {
+          var shown = discovered.slice(0, 8);
+          var foundRows = shown.map(function (candidate) {
+            return h("div", { key: "d-" + candidate.alias, style: S.hostRow }, [
+              h("span", { key: "n", style: S.mono }, candidate.alias + " · " + candidate.host + ":" + candidate.port),
+              h("button", {
+                key: "add", style: S.dockButton, disabled: busy !== "",
+                onClick: function () { addHost(candidate); }
+              }, busy === "add:" + candidate.alias ? "添加中…" : "添加")
+            ]);
+          });
+          children.push(h("div", { key: "discovered", style: S.section },
+            [h("div", { key: "t", style: S.sectionTitle }, "发现的主机 / discovered in ~/.ssh")].concat(foundRows)));
+          if (discovered.length > shown.length) {
+            children.push(h("div", { key: "more", style: S.muted },
+              "还有 " + (discovered.length - shown.length) + " 台未显示"));
+          }
+        }
+        if (status.discovery && status.discovery.hashed > 0) {
+          children.push(h("div", { key: "hashed", style: S.muted },
+            status.discovery.hashed + " 条 known_hosts 记录已哈希(HashKnownHosts),无法反解出主机名"));
+        }
       }
       if (status !== null && hosts.length === 0) {
         children.push(h("div", { key: "empty", style: S.muted },
