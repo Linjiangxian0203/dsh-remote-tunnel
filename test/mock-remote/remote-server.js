@@ -35,5 +35,5 @@ server.listen(port, "127.0.0.1", () => {
   // plain line first simulates a stale pre-token journal entry, so the plugin
   // must pick the LAST token-carrying URL logged after the unit start.
   journal(`dsh web: http://127.0.0.1:${port}`);
-  journal(`dsh web: http://127.0.0.1:${port}/?token=mock-token-${port} (LAN: http://192.168.1.5:${port}/?token=mock-token-${port})`);
+  journal(`dsh web: http://127.0.0.1:${port}/?token=mock-token-${port} (LAN: http://198.51.100.5:${port}/?token=mock-token-${port})`);
 });

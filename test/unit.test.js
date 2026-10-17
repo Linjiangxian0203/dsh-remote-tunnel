@@ -297,8 +297,8 @@ function loadClientBundle() {
   const source = readFileSync(new URL("../src/client.js", import.meta.url), "utf8");
   const state = {
     dock: true,
-    tunnels: [{ alias: "lab", host: "10.0.0.1", remotePort: 3080, url: "http://127.0.0.1:3081", workspace: "/home/lab" }],
-    hosts: [{ alias: "lab", host: "10.0.0.1", port: 22, origin: "plugin-config" }],
+    tunnels: [{ alias: "lab", host: "192.0.2.21", remotePort: 3080, url: "http://127.0.0.1:3081", workspace: "/home/lab" }],
+    hosts: [{ alias: "lab", host: "192.0.2.21", port: 22, origin: "plugin-config" }],
     discovered: [
       { alias: "192.0.2.55", suggestedAlias: "192.0.2.55", key: "192.0.2.55:22", host: "192.0.2.55", port: 22, origin: "known-hosts", managed: false },
       { alias: "192.0.2.77:6104", suggestedAlias: "192.0.2.77-6104", key: "192.0.2.77:6104", host: "192.0.2.77", port: 6104, origin: "known-hosts", managed: false }
@@ -465,7 +465,7 @@ test("client bundle: the /remote card offers both open modes and the disconnect 
   assert.ok(card, "the command card must be registered");
   assert.equal(card.definition.key, "remote");
   react.reset();
-  const node = { name: "remote", args: " hosts", outcome: { kind: "success", text: "lab  10.0.0.1:22  [ssh-config]" } };
+  const node = { name: "remote", args: " hosts", outcome: { kind: "success", text: "lab  192.0.2.21:22  [ssh-config]" } };
   const { second } = await renderTwice(react, card.Component, { node });
   assert.ok(second.includes("在浏览器打开"), second);
   assert.ok(second.includes("在侧栏打开"), second);
@@ -577,7 +577,7 @@ test("client bundle: the pane lists hosts, offers discovered candidates and spel
   const tree = await renderTree(react, pane.Component, props);
   const text = collectStrings(tree).join(" | ");
   assert.ok(text.includes("已配置主机 / managed hosts"), text);
-  assert.ok(text.includes("lab · 10.0.0.1:22"), text);
+  assert.ok(text.includes("lab · 192.0.2.21:22"), text);
   assert.ok(text.includes("发现的主机 / discovered in ~/.ssh"), text);
   assert.ok(text.includes("192.0.2.55 · 192.0.2.55:22"), text);
   assert.ok(text.includes("2 条 known_hosts 记录已哈希"), text);
@@ -625,7 +625,7 @@ test("client bundle: the pane lists hosts, offers discovered candidates and spel
     ["/remote-tunnel/hosts/remove?confirm=1&alias=lab"]
   );
   // An ssh-config host is not ours to delete.
-  load.state.hosts = [{ alias: "from-ssh-config", host: "10.0.0.9", port: 22, origin: "ssh-config" }];
+  load.state.hosts = [{ alias: "from-ssh-config", host: "192.0.2.29", port: 22, origin: "ssh-config" }];
   react.reset();
   const sshTree = await renderTree(react, pane.Component, props);
   assert.equal(findElement(sshTree, (element) => element.type === "button" && collectStrings(element).includes("删除")), undefined);
@@ -635,10 +635,10 @@ test("client bundle: the pane lists hosts, offers discovered candidates and spel
 test("client bundle: the pane follows the selected host, not the first tunnel", async () => {
   const load = loadClientBundle();
   load.state.hosts = [
-    { alias: "lab", host: "10.0.0.1", port: 22, origin: "plugin-config" },
-    { alias: "prod", host: "10.0.0.2", port: 2200, origin: "ssh-config" }
+    { alias: "lab", host: "192.0.2.21", port: 22, origin: "plugin-config" },
+    { alias: "prod", host: "192.0.2.22", port: 2200, origin: "ssh-config" }
   ];
-  load.state.tunnels = [{ alias: "prod", host: "10.0.0.2", remotePort: 3090, url: "http://127.0.0.1:3091", workspace: null }];
+  load.state.tunnels = [{ alias: "prod", host: "192.0.2.22", remotePort: 3090, url: "http://127.0.0.1:3091", workspace: null }];
   load.state.discovered = [];
   const { react, registered } = await mountClient(load);
   const pane = registered.find((item) => item.definition.name === TAB_PANE);
@@ -695,7 +695,7 @@ test("client bundle: the pane survives a cold status and a 0.2.0 host half", asy
 test("client bundle: hiding is reversible from the pane and never deletes anything", async () => {
   const load = loadClientBundle();
   // A ~/.ssh/config host is the one the pane offers to hide (it cannot be deleted).
-  load.state.hosts = [{ alias: "from-ssh", host: "10.0.0.9", port: 22, origin: "ssh-config" }];
+  load.state.hosts = [{ alias: "from-ssh", host: "192.0.2.29", port: 22, origin: "ssh-config" }];
   const { react, registered } = await mountClient(load);
   const pane = registered.find((item) => item.definition.name === TAB_PANE);
   // The pane arms a 15 s refresh interval, so a failing assertion here must still
