@@ -1,8 +1,10 @@
 # AGENTS.md — how to work in this repository
 
-Read this first. The breakpoint document for the current round is
-[`docs/desktop-panel-progress.md`](docs/desktop-panel-progress.md); the plan for the round in
-flight is [`docs/desktop-panel-0.2.1-plan.md`](docs/desktop-panel-0.2.1-plan.md).
+Read this first. The working notes for a round (progress log, plan, route) are **local-only
+documents on the owner's machine**: `docs/desktop-panel-progress.md`,
+`docs/desktop-panel-0.2.1-plan.md` and `docs/desktop-web-refactor-route.md` are git-ignored and
+never published, because they record this machine's real values. They are not part of the
+repository — do not add them back.
 
 ## 1. Never publish this machine's SSH details — owner's standing rule (2026-10-03)
 

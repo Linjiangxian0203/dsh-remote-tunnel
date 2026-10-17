@@ -9,3 +9,8 @@ docs/desktop-panel-kickoff-prompt.md
 docs/desktop-panel-prompt-short.md
 # Local-only privacy checklist: it lists THIS machine's real values on purpose.
 docs/local-privacy-check.md
+
+# Local-history documents — kept on this machine only, never in the public repo.
+docs/desktop-panel-progress.md
+docs/desktop-web-refactor-route.md
+docs/desktop-panel-0.2.1-plan.md

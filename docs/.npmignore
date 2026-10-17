@@ -12,8 +12,8 @@ desktop-panel-prompt-short.md
 optimization-plan.md
 
 # Local-history documents: they record THIS machine — the ssh alias, the server
-# address, local paths, backup directories. They stay in the git repository
-# (where they are the project's own history) but never travel to npm.
+# address, local paths, backup directories. They stay on the owner's machine
+# only (git-ignored, never in the public repository) and never travel to npm.
 desktop-panel-progress.md
 desktop-panel-0.2.1-plan.md
 desktop-web-refactor-route.md
