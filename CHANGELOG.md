@@ -6,6 +6,15 @@ versions are published to npm and tagged `v*` on GitHub.
 
 ## [Unreleased]
 
+### Fixed
+
+- The DSH peer range names the 0.2.1 prerelease line explicitly
+  (`@deepseek-ai/dsh-cmdline: ... || ^0.2.0-rc.2 || ^0.2.1-rc.1`), so plain
+  SemVer peer checks (pnpm, registry tooling) accept DSH 0.2.1 prereleases as
+  well as the desktop runtime's `includePrerelease` rule already did. Verified
+  against the DSH desktop 0.2.1-rc.1 host: the plugin row mounts and
+  `/remote-tunnel/*` routes answer through `ctx.connection.admit()`.
+
 ## [0.2.1]
 
 The right sidebar gets a **remote connections panel** — the entry that works in a brand-new session —
