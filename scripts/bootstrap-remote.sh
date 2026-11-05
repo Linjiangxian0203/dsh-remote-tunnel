@@ -10,7 +10,7 @@
 # It is idempotent and installs everything into the ACCOUNT's own home (no
 # root needed when Node is already installed), so every labmate runs it once
 # for their own user:
-#   1. checks Node >= 22.19 (dsh requirement)
+#   1. checks Node >= 24.9 (the @deepseek-ai/dsh@0.2.2 engine floor)
 #   2. installs @deepseek-ai/dsh into ~/.npm-global (npm prefix); with
 #      DSHRT_UPGRADE=1 it reinstalls even when dsh is already present
 #   3. adds ~/.npm-global/bin to the account's PATH (bash/zsh/profile rc
@@ -43,15 +43,15 @@ if command -v node >/dev/null 2>&1; then
   NODE_MINOR=$(printf '%s' "$NODE_VERSION" | sed -E 's/^v[0-9]+\.([0-9]+).*/\1/')
   say "node: $NODE_VERSION"
 fi
-if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 19 ]; }; then
+if [ "$NODE_MAJOR" -lt 24 ] || { [ "$NODE_MAJOR" -eq 24 ] && [ "$NODE_MINOR" -lt 9 ]; }; then
   if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
     say "node too old/missing — installing via NodeSource (needs sudo)..."
-    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
     sudo apt-get install -y nodejs
   else
-    die "node >= 22.19 is required but not found. Install it first, e.g.:
+    die "node >= 24.9 is required but not found. Install it first, e.g.:
   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-  nvm install 22
+  nvm install 24
 then re-run this script."
   fi
 fi

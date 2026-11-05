@@ -43,7 +43,7 @@ dsh --profile remote up lab --open
 dsh --profile remote down lab
 ```
 
-远程服务器需要:Node ≥ 22.19、dsh、systemd、免密钥 ssh 登录。**每个账号**(包括实验室里其他师兄师姐各自的账号)在自己电脑上跑一次初始化即可,幂等:
+远程服务器需要:Node ≥ 24.9、dsh、systemd、免密钥 ssh 登录。**每个账号**(包括实验室里其他师兄师姐各自的账号)在自己电脑上跑一次初始化即可,幂等:
 `dsh --profile remote bootstrap lab`(同一脚本亦可手动:`ssh <host> 'sh -s' < scripts/bootstrap-remote.sh`)。其余参数在 `$DSH_HOME/remote-tunnel/config.yaml`,不改就能用。
 
 > `remote` CLI profile 是插件的主界面。装进 **web** profile 才会让插件出现在「设置 → 插件」里、并启用聊天中的 `/remote` 斜杠命令——装完记得重启一次 `dsh web`。
@@ -51,7 +51,7 @@ dsh --profile remote down lab
 ## 要求
 
 - 本地:Windows/macOS/Linux,自带 OpenSSH 客户端(Windows 10+ 已内置),**Node ≥ 22.19**
-- 远程:Linux,Node ≥ 22.19 + dsh(用 `dsh --profile remote bootstrap <host>` 或 `scripts/bootstrap-remote.sh` 安装,**每个账号各自装一次**),systemd(用户级即可,无需 root)
+- 远程:Linux,Node ≥ 24.9 + dsh(用 `dsh --profile remote bootstrap <host>` 或 `scripts/bootstrap-remote.sh` 安装,**每个账号各自装一次**;该下限跟随 `@deepseek-ai/dsh@0.2.2` 的 `engines.node`),systemd(用户级即可,无需 root)
 - 推荐:远程已配置 SSH 免密钥登录(`ssh <别名>` 直接能进,不弹密码)
 
 ## 安装
@@ -284,7 +284,7 @@ dsh --profile remote bootstrap <host>     # 在自己电脑上,以自己账号 s
 
 ## 远程账号初始化(`bootstrap`,按登录账号)
 
-`dsh --profile remote bootstrap <host>` 为 **ssh 别名登录的那个账号**补齐环境:Node ≥ 22.19(缺失时尽量装)、dsh(装进该账号 `~/.npm-global`)、`~/.dsh`、systemd linger、npm-global 的 PATH 条目——幂等,新账号跑一次即可。`--upgrade` 则会强制把 dsh 更新到最新版。
+`dsh --profile remote bootstrap <host>` 为 **ssh 别名登录的那个账号**补齐环境:Node ≥ 24.9(缺失时尽量装)、dsh(装进该账号 `~/.npm-global`)、`~/.dsh`、systemd linger、npm-global 的 PATH 条目——幂等,新账号跑一次即可。`--upgrade` 则会强制把 dsh 更新到最新版。
 
 ```powershell
 dsh --profile remote bootstrap lab              # 准备好当前账号

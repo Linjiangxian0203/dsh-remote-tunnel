@@ -278,7 +278,7 @@ export class TunnelManager {
     const targets = await this.resolveTargets(alias);
     const { hostDef, facts, user, registry, scope } = targets;
     if (facts.nodePath === null) {
-      throw new TunnelError(`node not found on ${alias} — the remote dsh requires Node >= 22.19 (run 'dsh --profile remote bootstrap ${alias}')`, { code: "E_REMOTE_NO_NODE" });
+      throw new TunnelError(`node not found on ${alias} — the remote dsh requires Node >= 24.9 (run 'dsh --profile remote bootstrap ${alias}')`, { code: "E_REMOTE_NO_NODE" });
     }
     if (facts.dshPath === null) {
       throw new TunnelError(`dsh not found on ${alias} — run 'dsh --profile remote bootstrap ${alias}' to install it into the account's ~/.npm-global`, { code: "E_REMOTE_NO_DSH" });
@@ -737,7 +737,7 @@ export class TunnelManager {
 
   /**
    * Idempotently prepare the remote ACCOUNT the ssh alias logs in as:
-   * Node >= 22.19 (when possible), dsh into ~/.npm-global, ~/.dsh, systemd
+   * Node >= 24.9 (when possible), dsh into ~/.npm-global, ~/.dsh, systemd
    * linger and PATH rc entries. Streams the packaged bootstrap script to
    * `sh -s` — the same script users can run manually, one source of truth.
    * Each labmate runs this once for their own account (e.g. bob, alice);
@@ -784,9 +784,9 @@ export class TunnelManager {
     const version = await execRemote(hostDef, `${nodeBin} --version 2>&1 || true`, { cfg: this.cfg, timeoutMs: 30000 });
     const nodeOk = /^v(\d+)\.(\d+)\./.test(version.stdout.trim()) && (() => {
       const [, major, minor] = /^v(\d+)\.(\d+)\./.exec(version.stdout.trim());
-      return Number(major) > 22 || (Number(major) === 22 && Number(minor) >= 19);
+      return Number(major) > 24 || (Number(major) === 24 && Number(minor) >= 9);
     })();
-    push("node >= 22.19", nodeOk, version.stdout.trim() || "node not found", `run 'dsh --profile remote bootstrap ${alias}'`, nodeOk ? "info" : "error");
+    push("node >= 24.9", nodeOk, version.stdout.trim() || "node not found", `run 'dsh --profile remote bootstrap ${alias}'`, nodeOk ? "info" : "error");
 
     const dshBin = facts.dshPath ?? "dsh";
     const dsh = await execRemote(hostDef, `${dshBin} --version 2>&1 || true`, { cfg: this.cfg, timeoutMs: 30000 });

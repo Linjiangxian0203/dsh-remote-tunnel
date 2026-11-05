@@ -41,7 +41,7 @@ dsh --profile remote up lab --open
 dsh --profile remote down lab
 ```
 
-The remote server needs: Node ≥ 22.19, dsh, systemd, and key-based ssh login. **Every account** (each labmate's own user) prepares its own environment once — idempotent, runs as whoever the ssh alias logs in as:
+The remote server needs: Node ≥ 24.9, dsh, systemd, and key-based ssh login. **Every account** (each labmate's own user) prepares its own environment once — idempotent, runs as whoever the ssh alias logs in as:
 `dsh --profile remote bootstrap lab` (same script, manual: `ssh <host> 'sh -s' < scripts/bootstrap-remote.sh`). Everything else lives in `$DSH_HOME/remote-tunnel/config.yaml` — sensible defaults, no changes needed.
 
 > The `remote` CLI profile is the main interface. Installing into the **web** profile is what makes the plugin appear under **Settings → Plugins** and enables the `/remote` slash commands in chat — restart `dsh web` once after adding it there.
@@ -49,7 +49,7 @@ The remote server needs: Node ≥ 22.19, dsh, systemd, and key-based ssh login. 
 ## Requirements
 
 - Local: Windows/macOS/Linux with the built-in OpenSSH client (Windows 10+ ships it), **Node ≥ 22.19**
-- Remote: Linux, Node ≥ 22.19 + dsh (installable per account via `dsh --profile remote bootstrap <host>` or `scripts/bootstrap-remote.sh` — each user runs it once for their own account), systemd (user-level is enough — no root needed)
+- Remote: Linux, Node ≥ 24.9 + dsh (installable per account via `dsh --profile remote bootstrap <host>` or `scripts/bootstrap-remote.sh` — each user runs it once for their own account; the floor tracks `@deepseek-ai/dsh@0.2.2`'s `engines.node`), systemd (user-level is enough — no root needed)
 - Recommended: passwordless ssh key login (`ssh <alias>` connects without prompts)
 
 ## Install (development)
@@ -298,7 +298,7 @@ Each user runs `up` independently and gets a different remote port; `audit` show
 
 ## Remote bootstrap (per account)
 
-`dsh --profile remote bootstrap <host>` prepares **the account the ssh alias logs in as**: Node ≥ 22.19 (when installable), dsh into that account's `~/.npm-global`, `~/.dsh`, systemd lingering and the npm-global PATH entries — idempotent, so each labmate runs it once for their own user. `--upgrade` forces dsh to the latest version.
+`dsh --profile remote bootstrap <host>` prepares **the account the ssh alias logs in as**: Node ≥ 24.9 (when installable), dsh into that account's `~/.npm-global`, `~/.dsh`, systemd lingering and the npm-global PATH entries — idempotent, so each labmate runs it once for their own user. `--upgrade` forces dsh to the latest version.
 
 ```powershell
 dsh --profile remote bootstrap lab              # prepare the current account

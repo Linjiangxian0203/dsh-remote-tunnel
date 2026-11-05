@@ -184,6 +184,11 @@ test("bootstrap script: shim marker, idempotent install, upgrade + PATH branches
   assert.ok(script.includes("DSHRT_UPGRADE"), "upgrade branch must exist");
   assert.ok(script.includes(".npm-global/bin:$PATH"), "PATH rc persistence must be present");
   assert.ok(script.includes("loginctl enable-linger"), "linger must be enabled");
+  // The remote floor tracks the installed dsh line: @deepseek-ai/dsh@0.2.2 declares
+  // engines.node >= 24.9, so the bootstrap/check gate must match it (a Node 22
+  // account would otherwise install a dsh whose engine it misses).
+  assert.ok(script.includes("node >= 24.9"), "node floor must be 24.9");
+  assert.ok(script.includes("setup_24.x"), "NodeSource branch must install Node 24");
   assert.ok(!script.includes("it does NOT install"), "stale note removed");
 });
 

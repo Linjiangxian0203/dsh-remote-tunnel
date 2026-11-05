@@ -168,7 +168,7 @@ Commands:
 
   // ---- bootstrap -----------------------------------------------------------
   const bootstrapCmd = program.command("bootstrap <host>")
-    .description("install the account's remote prerequisites: Node >= 22.19 (when possible), dsh into ~/.npm-global, ~/.dsh, systemd linger (idempotent; runs as whoever the ssh alias logs in as)")
+    .description("install the account's remote prerequisites: Node >= 24.9 (when possible), dsh into ~/.npm-global, ~/.dsh, systemd linger (idempotent; runs as whoever the ssh alias logs in as)")
     .option("--upgrade", "reinstall/update dsh to the latest version even if already installed");
   bootstrapCmd.action((alias, options) => {
     Promise.resolve().then(async () => {

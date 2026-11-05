@@ -17,3 +17,8 @@ optimization-plan.md
 desktop-panel-progress.md
 desktop-panel-0.2.1-plan.md
 desktop-web-refactor-route.md
+
+# Local-only privacy checklist: it lists THIS machine's real ssh values on
+# purpose (see the root .gitignore). It must never reach the tarball either —
+# `files: ["docs"]` would otherwise publish it.
+local-privacy-check.md

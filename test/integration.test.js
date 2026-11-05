@@ -393,7 +393,7 @@ test("check reports missing node/dsh", async () => {
   try {
     const report = await manager.check("mock");
     assert.equal(report.allOk, false);
-    assert.equal(report.steps.find((s) => s.name === "node >= 22.19").ok, false);
+    assert.equal(report.steps.find((s) => s.name === "node >= 24.9").ok, false);
   } finally {
     delete process.env.DSH_MOCK_NO_NODE;
     await teardown([manager], env);
@@ -542,7 +542,7 @@ test("bootstrap surfaces the failure when Node is missing (no sudo path)", async
   const manager = makeManager(env.home);
   try {
     await assert.rejects(() => manager.bootstrap("mock"), (error) =>
-      error.code === "E_BOOTSTRAP" && error.message.includes("node >= 22.19"));
+      error.code === "E_BOOTSTRAP" && error.message.includes("node >= 24.9"));
   } finally {
     delete process.env.DSH_MOCK_NO_NODE;
     await teardown([manager], env);

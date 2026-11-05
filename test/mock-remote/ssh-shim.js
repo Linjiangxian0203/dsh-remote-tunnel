@@ -301,7 +301,7 @@ async function runStage(state, tokens, stdinText) {
     case "node": {
       if (args[0] === "--version") {
         if (process.env.DSH_MOCK_NO_NODE !== undefined) return out("", 127, "node: command not found");
-        return out(`${process.env.DSH_MOCK_NODE_VERSION ?? "v22.23.2"}\n`);
+        return out(`${process.env.DSH_MOCK_NODE_VERSION ?? "v24.21.0"}\n`);
       }
       if (args[0] === "-e") {
         const prog = args[1];
@@ -601,9 +601,9 @@ function runBootstrap(state) {
   let text = "== dsh-remote-tunnel bootstrap ==\n";
   text += `account: ${user} home=/home/${user}\n`;
   if (process.env.DSH_MOCK_NO_NODE !== undefined) {
-    return { code: 1, stdout: text, stderr: "node >= 22.19 is required but not found. Install it first, e.g.:\n  nvm install 22" };
+    return { code: 1, stdout: text, stderr: "node >= 24.9 is required but not found. Install it first, e.g.:\n  nvm install 24" };
   }
-  text += `node: ${process.env.DSH_MOCK_NODE_VERSION ?? "v22.23.2"}\n`;
+  text += `node: ${process.env.DSH_MOCK_NODE_VERSION ?? "v24.21.0"}\n`;
   if (upgrade) {
     text += `upgrading @deepseek-ai/dsh to the latest version in ${join(homeDir, ".npm-global")} ...\n`;
   } else if (!absent) {

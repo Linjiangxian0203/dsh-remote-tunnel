@@ -1,7 +1,7 @@
 {
   "name": "dsh-remote-tunnel",
   "description": "Remote Host Tunnel Manager for dsh: allocate and register remote ports, run dsh web on a remote Linux server via systemd, and keep a resilient SSH tunnel from this machine to it.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "MIT",
   "type": "module",
   "main": "src/index.js",
@@ -51,7 +51,7 @@
     "js-yaml": "^4.2.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-cmdline": "^0.1.2-alpha.3 || ^0.1.7-rc.1 || ^0.2.0-rc.2 || ^0.2.1-rc.1",
+    "@deepseek-ai/dsh-cmdline": "^0.1.2-alpha.3 || ^0.1.7-rc.1 || ^0.2.0-rc.2 || ^0.2.1-rc.1 || ^0.2.2-rc.1",
     "@deepseek-ai/schemastery": "^3.18.2"
   },
   "devDependencies": {

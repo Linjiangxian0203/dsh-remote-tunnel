@@ -4,11 +4,29 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions are published to npm and tagged `v*` on GitHub.
 
-## [Unreleased]
+## [0.2.2]
+
+Compatibility wrap-up for **DSH desktop 0.2.2-rc.1**, verified end to end: every host-plane and
+web-client contract this plugin uses is unchanged (13 host / 11 client coupling points), and an
+isolated 0.2.2-rc.1 profile cold-boots with the `remote-tunnel` row mounted, `/remote-tunnel/*`
+answering through `ctx.connection.admit()`, and the client bundle served from `__DSH_BOOT__`.
+
+### Changed
+
+- The DSH peer range names the 0.2.2 prerelease line explicitly
+  (`@deepseek-ai/dsh-cmdline: ... || ^0.2.1-rc.1 || ^0.2.2-rc.1`), so plain
+  SemVer peer checks (pnpm, registry tooling) accept DSH 0.2.2 prereleases as
+  well as the desktop runtime's `includePrerelease` rule already did.
+- **The remote Node floor is now 24.9**, tracking `@deepseek-ai/dsh@0.2.2`'s
+  `engines.node`: `bootstrap` installs Node 24 via NodeSource when it has to,
+  `check` reports `node >= 24.9`, and the CLI help plus both READMEs state the
+  new prerequisite. A remote account still on Node 22.19–24.8 now fails the
+  check explicitly instead of silently installing a dsh whose engine it misses
+  (npm only warns `EBADENGINE`, and upstream no longer supports that runtime).
 
 ### Fixed
 
-- The DSH peer range names the 0.2.1 prerelease line explicitly
+- The peer range names the 0.2.1 prerelease line explicitly
   (`@deepseek-ai/dsh-cmdline: ... || ^0.2.0-rc.2 || ^0.2.1-rc.1`), so plain
   SemVer peer checks (pnpm, registry tooling) accept DSH 0.2.1 prereleases as
   well as the desktop runtime's `includePrerelease` rule already did. Verified
