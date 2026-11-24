@@ -1,0 +1,24 @@
+name: npm auth check
+
+# Manual, read-only sanity check: proves the NPM_TOKEN repository secret can
+# authenticate against the public registry without publishing anything.
+on:
+  workflow_dispatch:
+
+jobs:
+  whoami:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19'
+          registry-url: "https://registry.npmjs.org"
+
+      - name: whoami with NPM_TOKEN
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm whoami
+          npm view dsh-remote-tunnel version
