@@ -115,7 +115,14 @@ function applyService(ctx, home, settings) {
   ctx.effect(() => () => manager.dispose(), "remote-tunnel.service");
   // Service readiness is exposed through the state route: a service that never
   // mounts is otherwise silent, and that silence is worth being able to read.
-  const services = { commands: false, webServer: false, startedAt: new Date().toISOString() };
+  //   webServer  "registered" | "missing" | "failed" | false (not reached yet)
+  //   admission  "injected" (0.2.3 auth scope mounted) | "unknown"
+  const services = {
+    commands: false,
+    webServer: false,
+    admission: "unknown",
+    startedAt: new Date().toISOString()
+  };
   // The resolved row config is worth being able to read back: a profile patch
   // that silently fails to reach this row looks exactly like "settings ignored".
   record("config", JSON.stringify({ home, openIn: settings.openIn, autoOpen: settings.autoOpen, dock: settings.dock }));
@@ -124,7 +131,6 @@ function applyService(ctx, home, settings) {
     registerSlashCommands(scoped, manager);
   });
   ctx.inject(["webServer"], (scoped) => {
-    services.webServer = true;
     registerWebRoutes(scoped, manager, services, settings);
   });
   // Registering through a webServer-scoped context keeps the routes alive even

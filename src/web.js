@@ -49,18 +49,74 @@ function message(error) {
 }
 
 /**
+ * The admission fence itself is broken: the Connection service exists but its
+ * `admit()` call threw. Distinct from 401/403 — the request was never judged.
+ */
+export const ADMISSION_UNAVAILABLE = 503;
+
+/**
  * Apply the platform's request trust and browser authentication.
  *
- * @returns the rejection status (403 fence / 401 unauthenticated), or undefined
- *   when the request is admitted — or when checking is disabled/unavailable.
+ * @returns the rejection status (403 fence / 401 unauthenticated / 503 when the
+ *   fence cannot run), or undefined when the request is admitted — or when
+ *   checking is disabled or no Connection service is mounted.
  */
 export function authRejection(connection, settings, request) {
   if (settings?.auth === false) return undefined;
   if (connection === undefined || typeof connection.admit !== "function") return undefined;
-  const admission = connection.admit(request);
+  let admission;
+  try {
+    admission = connection.admit(request);
+  } catch (error) {
+    // A fence that cannot run must not turn every route into an opaque 500 —
+    // and must not fall open either: these routes hand out a URL that carries
+    // a one-time launch token. Report it as a clear "unavailable" instead.
+    record("admission-failed", message(error));
+    return ADMISSION_UNAVAILABLE;
+  }
   return admission !== null && typeof admission === "object" && "rejection" in admission
     ? admission.rejection
     : undefined;
+}
+
+/**
+ * Build the per-request resolver for the Connection service.
+ *
+ * DSH 0.2.3 (Cordis 4.2) wraps services in context-tracking proxies: a method
+ * body runs against the **calling** context, so `connection.admit()` reading
+ * its own `connection.authentication` throws `cannot get property
+ * "connection.authentication" without inject` unless the caller's inject list
+ * names it. Reading through a child context that declares both keeps the fence
+ * working; on older hosts there is no `connection.authentication` service and
+ * the callback simply never fires, so the base context is used unchanged.
+ *
+ * The service can also mount after this row, so it is resolved per request
+ * rather than captured here.
+ */
+function connectionReader(ctx, services) {
+  let admissionScope;
+  try {
+    ctx.inject(["connection", "connection.authentication"], (scoped) => {
+      admissionScope = scoped;
+      if (services !== undefined) services.admission = "injected";
+      record("admission", "connection.authentication is injectable");
+    });
+  } catch (error) {
+    record("admission-scope-failed", message(error));
+  }
+  return () => {
+    const candidates = admissionScope === undefined ? [ctx] : [admissionScope, ctx];
+    for (const candidate of candidates) {
+      try {
+        const connection = candidate.get("connection");
+        if (connection !== undefined) return connection;
+      } catch (error) {
+        // Try the next context; a composition without Connection is allowed
+        // and `authRejection` treats it as "no check available".
+      }
+    }
+    return undefined;
+  };
 }
 
 /** Resolve the tunnel this request is about: ?host=<alias>, else the only one. */
@@ -70,29 +126,42 @@ function pickTunnel(manager, wanted) {
   return states.find((state) => state.alias === wanted);
 }
 
-/** Register the /remote-tunnel/ routes. Returns after registering; the
- *  disposer removes every route when the plugin unloads. */
+/**
+ * Register the /remote-tunnel/ routes.
+ *
+ * @returns "registered" when the routes are live, or the reason they are not
+ *   ("missing" = no webServer service mounted, "failed" = register() threw).
+ *   Callers expose the outcome through `/remote-tunnel/status`, so a plugin
+ *   that is active but has no routes is diagnosable instead of silent.
+ */
 export function registerWebRoutes(ctx, manager, services, settings) {
   const webServer = ctx.get("webServer");
-  if (webServer === undefined) return;
-  // The Connection service can mount after this row, so it is resolved per
-  // request rather than captured here (a missing service means "no check
-  // available", which `authRejection` treats as unverified-but-allowed).
-  const connection = () => {
-    try {
-      return ctx.get("connection");
-    } catch (error) {
-      return undefined;
-    }
-  };
-  const dispose = webServer.register({
-    kind: "prefix",
-    path: PREFIX,
-    handler: (req, res) => {
-      void handle(connection, manager, services, settings, req, res);
-    }
-  });
+  if (webServer === undefined) {
+    record("web-unavailable", "webServer service is not mounted");
+    if (services !== undefined) services.webServer = "missing";
+    return "missing";
+  }
+  const connection = connectionReader(ctx, services);
+  let dispose;
+  try {
+    dispose = webServer.register({
+      kind: "prefix",
+      path: PREFIX,
+      handler: (req, res) => {
+        void handle(connection, manager, services, settings, req, res);
+      }
+    });
+  } catch (error) {
+    // Registering a route is where a host API change surfaces first. Record it
+    // instead of letting the inject callback reject and leave the plugin
+    // "active" with no routes and no explanation.
+    record("web-register-failed", message(error));
+    if (services !== undefined) services.webServer = "failed";
+    return "failed";
+  }
+  if (services !== undefined) services.webServer = "registered";
   ctx.effect(() => () => dispose(), "remote-tunnel.web");
+  return "registered";
 }
 
 async function handle(connection, manager, services, settings, req, res) {
@@ -102,6 +171,13 @@ async function handle(connection, manager, services, settings, req, res) {
     const rejection = authRejection(connection(), settings, req);
     if (rejection !== undefined) {
       record("rejected", rejection + " " + action);
+      if (rejection === ADMISSION_UNAVAILABLE) {
+        return sendJson(res, ADMISSION_UNAVAILABLE, {
+          ok: false,
+          error: "request admission is unavailable in this host",
+          code: "E_ADMISSION_UNAVAILABLE"
+        });
+      }
       res.writeHead(rejection, { ...JSON_HEADERS });
       res.end();
       return;

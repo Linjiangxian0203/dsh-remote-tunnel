@@ -11,6 +11,12 @@
 //      in the system browser, the two modes the plugin offers.
 // It declares no `inject`: services are resolved lazily so the plugin always
 // applies and reports what happened, even when a service mounts late.
+//
+// It also deliberately stays out of DSH's built-in upload path: no
+// `__DSH_FILE_UPLOAD__` hook, no `fileUpload` service override, no global
+// `fetch` patch. Another remote plugin took that hook over on DSH
+// 0.2.3-alpha.2 and broke every local image upload (ds-harness-remote#577);
+// a tunnel manager has no business intercepting built-in transfers.
 window.__ModuleLoader__.load({
   id: "dsh-remote-tunnel",
   factory(require) {
@@ -53,6 +59,26 @@ window.__ModuleLoader__.load({
       } catch (error) { /* ignore */ }
     }
 
+    // The host half can be absent in a way that looks like a plain tunnel
+    // failure. Name the two host-contract states explicitly: 404/405 means the
+    // /remote-tunnel routes were never registered (plugin host half not
+    // mounted, or a DSH version this build does not speak), and 503 means the
+    // route exists but its admission fence could not run. A generic
+    // "HTTP 500" here is what makes this class of failure so hard to report.
+    function hostFailure(status, body) {
+      var detail = body !== null && typeof body === "object" && typeof body.error === "string" ? body.error : "";
+      if (status === 404 || status === 405) {
+        return new Error("宿主路由未注册（HTTP " + status + "）：插件 host 半未挂载，或 DSH 版本与本插件不兼容" +
+          (detail === "" ? "" : " — " + detail));
+      }
+      if (status === 503) {
+        return new Error("宿主鉴权不可用（HTTP 503）：" +
+          (detail === "" ? "connection.admit() 无法运行" : detail) +
+          "；请在「设置 → 插件」检查本插件与 DSH 版本");
+      }
+      return new Error(detail !== "" ? detail : "remote-tunnel: HTTP " + status);
+    }
+
     async function callHost(action) {
       var response = await fetch(ROUTE + action, { headers: { accept: "application/json" } });
       var body = {};
@@ -61,7 +87,7 @@ window.__ModuleLoader__.load({
       } catch (error) {
         body = {};
       }
-      if (!response.ok) throw new Error(body.error || ("remote-tunnel: HTTP " + response.status));
+      if (!response.ok) throw hostFailure(response.status, body);
       return body;
     }
 

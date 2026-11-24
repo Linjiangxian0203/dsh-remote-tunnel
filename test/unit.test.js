@@ -9,7 +9,7 @@ import { renderUnitBody } from "../src/remote/unit.js";
 import { readBootstrapScript, BOOTSTRAP_MARKER } from "../src/remote/bootstrap.js";
 import { parseNetstatListening, parseTasklistCsv, parseLsofListening } from "../src/local/ports.js";
 import { resolveMode } from "../src/index.js";
-import { authRejection } from "../src/web.js";
+import { authRejection, registerWebRoutes, ADMISSION_UNAVAILABLE } from "../src/web.js";
 
 test("parsePort: passes through valid ports and absent options", () => {
   assert.equal(parsePort("22", "--port"), 22);
@@ -896,4 +896,117 @@ test("authRejection: mirrors connection.admit() and honours auth:false", () => {
   assert.equal(authRejection(admitted, { auth: true }, {}), undefined);
   assert.equal(authRejection(unauthenticated, { auth: false }, {}), undefined, "the escape hatch must bypass the check");
   assert.equal(authRejection(undefined, { auth: true }, {}), undefined, "no connection service = no check available");
+});
+
+test("authRejection: an admission fence that cannot run is 503, never a silent allow or a throw", () => {
+  // DSH 0.2.3's advisory: admit() resolves connection.authentication through the
+  // calling context, so a caller without the inject list throws here.
+  const broken = {
+    admit: () => {
+      throw new Error('cannot get property "connection.authentication" without inject');
+    }
+  };
+  assert.equal(authRejection(broken, { auth: true }, {}), ADMISSION_UNAVAILABLE);
+  assert.equal(authRejection(broken, { auth: false }, {}), undefined, "auth:false still bypasses a broken fence");
+});
+
+test("registerWebRoutes: reports a missing webServer instead of silently registering nothing", () => {
+  const services = { webServer: false, admission: "unknown" };
+  const outcome = registerWebRoutes({ get: () => undefined, inject: () => {}, effect: () => {} }, {}, services, { auth: true });
+  assert.equal(outcome, "missing");
+  assert.equal(services.webServer, "missing");
+});
+
+function fakeWebServer() {
+  return {
+    route: undefined,
+    register(route) {
+      this.route = route;
+      return () => {};
+    }
+  };
+}
+
+function fakeResponse() {
+  return {
+    status: 0,
+    body: "",
+    writeHead(status) {
+      this.status = status;
+    },
+    end(body) {
+      this.body = body ?? "";
+    }
+  };
+}
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test("registerWebRoutes: admission uses the inject-scoped Connection on DSH 0.2.3", async () => {
+  // Regression: reading connection off the webServer-scoped context made every
+  // route 500 on 0.2.3-alpha.2 ("cannot get property connection.authentication
+  // without inject"). The fence must be read through a child scope that
+  // declares connection + connection.authentication.
+  const webServer = fakeWebServer();
+  const baseBroken = {
+    admit: () => {
+      throw new Error('cannot get property "connection.authentication" without inject');
+    }
+  };
+  const scopedConnection = { admit: () => ({ peer: { id: "operator" } }) };
+  const injected = [];
+  const ctx = {
+    get: (name) => (name === "webServer" ? webServer : name === "connection" ? baseBroken : undefined),
+    inject: (deps, callback) => {
+      injected.push(deps);
+      callback({ get: (name) => (name === "connection" ? scopedConnection : undefined) });
+    },
+    effect: () => {}
+  };
+  const services = { webServer: false, admission: "unknown" };
+  assert.equal(registerWebRoutes(ctx, { listStatesLocal: () => [] }, services, { auth: true }), "registered");
+  assert.deepEqual(injected, [["connection", "connection.authentication"]]);
+  assert.equal(services.webServer, "registered");
+  assert.equal(services.admission, "injected");
+
+  const res = fakeResponse();
+  webServer.route.handler({ url: "/remote-tunnel/report?event=loaded", headers: {} }, res);
+  await tick();
+  assert.equal(res.status, 200, "the scoped (working) Connection must win over the broken base read");
+});
+
+test("registerWebRoutes: a fence that still throws answers 503 with a diagnosable code", async () => {
+  const webServer = fakeWebServer();
+  const broken = {
+    admit: () => {
+      throw new Error('cannot get property "connection.authentication" without inject');
+    }
+  };
+  const ctx = {
+    get: (name) => (name === "webServer" ? webServer : undefined),
+    inject: (deps, callback) => callback({ get: () => broken }),
+    effect: () => {}
+  };
+  registerWebRoutes(ctx, { listStatesLocal: () => [] }, {}, { auth: true });
+  const res = fakeResponse();
+  webServer.route.handler({ url: "/remote-tunnel/status", headers: {} }, res);
+  await tick();
+  assert.equal(res.status, ADMISSION_UNAVAILABLE);
+  assert.match(res.body, /E_ADMISSION_UNAVAILABLE/);
+});
+
+test("client bundle: never takes over DSH's built-in upload transport", () => {
+  // ds-harness-remote#577: a remote plugin installed a __DSH_FILE_UPLOAD__ hook
+  // and replaced fileUpload.post, so every local image upload died with a 405
+  // when its control route was missing. A tunnel manager must not touch that
+  // contract at all; this test is the regression lock.
+  const source = readFileSync(new URL("../src/client.js", import.meta.url), "utf8");
+  // The header comment documents the incident by name; scan code only.
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  for (const marker of ["__DSH_FILE_UPLOAD__", "fileUpload", "uploadFileBinary", "XMLHttpRequest", "uploadImage"]) {
+    assert.equal(code.includes(marker), false, `src/client.js must not mention ${marker}`);
+  }
+  assert.doesNotMatch(code, /(?:globalThis|window)\.fetch\s*=/, "src/client.js must not patch global fetch");
+  assert.doesNotMatch(code, /\.post\s*=/, "src/client.js must not replace a host service method");
+  assert.ok(source.includes("window.__ModuleLoader__.load({"), "still a classic client bundle");
 });
