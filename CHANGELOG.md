@@ -4,6 +4,53 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions are published to npm and tagged `v*` on GitHub.
 
+## [0.2.3]
+
+Compatibility release for **DSH desktop 0.2.3-alpha.2**, plus a hardening pass on the failure class
+that broke local image uploads in another remote plugin (`liguobao/ds-harness-remote#577`).
+
+### Fixed
+
+- **Every `/remote-tunnel/*` route answered HTTP 500 on DSH 0.2.3-alpha.2** with
+  `cannot get property "connection.authentication" without inject`. Cordis 4.2 wraps services in
+  context-tracking proxies, so a method body runs against the **calling** context: `connection.admit()`
+  therefore resolves its own `connection.authentication` through the caller's inject list. The routes
+  now read Connection through a child context that injects `connection` + `connection.authentication`;
+  older hosts have no such service, the callback never fires, and the base context is used unchanged.
+- A fence that still cannot run is answered as **503 `E_ADMISSION_UNAVAILABLE`** with the recorded
+  reason instead of an opaque 500, and never falls open — these routes hand out a launch URL that
+  carries a one-time token.
+
+### Changed
+
+- Route registration is no longer silent: `registerWebRoutes()` returns `registered` / `missing` /
+  `failed`, and `/remote-tunnel/status` exposes it as `services.webServer`, with
+  `services.admission` naming whether the 0.2.3 admission scope mounted. An active-but-unrouted
+  plugin is now diagnosable.
+- The client names the two host-contract states in the card, dock and pane: 404/405 =
+  "host routes not registered — host half not mounted, or a DSH version this build does not speak",
+  503 = "request admission unavailable".
+- The DSH peer range names the 0.2.3 prerelease line explicitly
+  (`… || ^0.2.2-rc.1 || ^0.2.3-alpha.2`), so plain SemVer peer checks accept DSH 0.2.3 prereleases
+  as well as the desktop runtime's `includePrerelease` rule already did.
+
+### Added
+
+- Regression lock: the client bundle must never mention `__DSH_FILE_UPLOAD__`, `fileUpload`,
+  `uploadFileBinary` or `XMLHttpRequest`, and must never patch global `fetch` or replace a host
+  service's `.post`. Taking over that hook is exactly what broke every local image upload in
+  `ds-harness-remote#577`; a tunnel manager has no business intercepting built-in transfers.
+- Tests: 52 → 57 — admission-scope regression (the 0.2.3 failure), the 503 path, missing-webServer
+  reporting, and the upload non-interference lock.
+
+### Verified
+
+- Isolated DSH 0.2.3-alpha.2 profile cold boot with this bundle: the `remote-tunnel` row mounts,
+  `/remote-tunnel/status` answers 200 with `services.webServer: "registered"` and
+  `services.admission: "injected"`, every client lifecycle report answers 200, the console stays
+  clean, and the plugin installs no upload hook (`globalThis.__DSH_FILE_UPLOAD__` stays `undefined`),
+  so the host's built-in worker upload transport is untouched.
+
 ## [0.2.2]
 
 Compatibility wrap-up for **DSH desktop 0.2.2-rc.1**, verified end to end: every host-plane and
